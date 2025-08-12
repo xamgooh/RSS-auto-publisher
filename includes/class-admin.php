@@ -256,6 +256,14 @@ class RSP_Admin {
                     <?php foreach ($feeds as $feed): 
                         $category = get_term($feed->category_id);
                         $languages_array = json_decode($feed->target_languages, true) ?: [];
+                        
+                        // Get article count for this feed
+                        global $wpdb;
+                        $processed_table = $wpdb->prefix . 'rsp_processed';
+                        $article_count = $wpdb->get_var($wpdb->prepare(
+                            "SELECT COUNT(*) FROM $processed_table WHERE feed_id = %d AND post_id IS NOT NULL",
+                            $feed->id
+                        ));
                     ?>
                     <div class="rsp-feed-card">
                         <div class="feed-card-header">
@@ -333,6 +341,11 @@ class RSP_Admin {
                             <div class="feed-meta-item">
                                 <span class="meta-label"><?php _e('Min Words:', 'rss-auto-publisher'); ?></span>
                                 <span class="meta-value"><?php echo $feed->min_word_count; ?></span>
+                            </div>
+                            
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Articles:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value" style="color: #2271b1; font-weight: 600;"><?php echo $article_count; ?></span>
                             </div>
                         </div>
                         
