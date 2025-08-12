@@ -303,6 +303,37 @@ class RSP_Admin {
                                     ?>
                                 </span>
                             </div>
+                            
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Items/Import:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value"><?php echo $feed->items_per_import; ?></span>
+                            </div>
+                            
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Frequency:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value">
+                                    <?php 
+                                    switch($feed->update_frequency) {
+                                        case 'hourly':
+                                            echo __('Hourly', 'rss-auto-publisher');
+                                            break;
+                                        case 'twicedaily':
+                                            echo __('2x Daily', 'rss-auto-publisher');
+                                            break;
+                                        case 'daily':
+                                            echo __('Daily', 'rss-auto-publisher');
+                                            break;
+                                        default:
+                                            echo $feed->update_frequency;
+                                    }
+                                    ?>
+                                </span>
+                            </div>
+                            
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Min Words:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value"><?php echo $feed->min_word_count; ?></span>
+                            </div>
                         </div>
                         
                         <div class="feed-card-actions">
