@@ -43,10 +43,13 @@ jQuery(document).ready(function($) {
         }
     });
     
-    // Edit feed
-    $(document).on('click', '.edit-feed', function() {
+    // Edit feed - fixed event binding
+    $(document).on('click', '.edit-feed', function(e) {
+        e.preventDefault();
         var $btn = $(this);
         var feedId = $btn.data('feed-id');
+        
+        console.log('Edit clicked for feed ID:', feedId); // Debug log
         
         $btn.prop('disabled', true).text('Loading...');
         
@@ -112,8 +115,9 @@ jQuery(document).ready(function($) {
                 alert('Error loading feed data: ' + response.data);
             }
         })
-        .fail(function() {
-            alert('Error loading feed data');
+        .fail(function(xhr, status, error) {
+            console.error('AJAX Error:', status, error); // Debug log
+            alert('Error loading feed data. Please check console for details.');
         })
         .always(function() {
             $btn.prop('disabled', false).text('Edit');
@@ -233,26 +237,4 @@ jQuery(document).ready(function($) {
     setTimeout(function() {
         $('.notice-success').fadeOut();
     }, 5000);
-    
-    // Handle responsive table on window resize
-    $(window).on('resize', function() {
-        handleResponsiveTable();
-    });
-    
-    function handleResponsiveTable() {
-        var width = $(window).width();
-        
-        if (width <= 782) {
-            // Mobile view - ensure cards are visible
-            $('.rsp-feeds-container').show();
-            $('.wp-list-table').hide();
-        } else {
-            // Desktop view - ensure table is visible
-            $('.rsp-feeds-container').hide();
-            $('.wp-list-table').show();
-        }
-    }
-    
-    // Initial check
-    handleResponsiveTable();
 });
