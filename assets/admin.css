@@ -85,6 +85,113 @@
     width: 200px;
 }
 
+/* Desktop Table View - Hide on Mobile */
+@media screen and (min-width: 783px) {
+    .rsp-feeds-container {
+        display: none;
+    }
+    
+    table.wp-list-table {
+        display: table !important;
+    }
+}
+
+/* Mobile Card View - Hide on Desktop */
+@media screen and (max-width: 782px) {
+    table.wp-list-table {
+        display: none !important;
+    }
+    
+    .rsp-feeds-container {
+        display: block;
+    }
+}
+
+/* Feed Item Card Styles */
+.rsp-feeds-container {
+    display: grid;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.rsp-feed-item {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    transition: box-shadow 0.3s;
+}
+
+.rsp-feed-item:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.feed-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.feed-title {
+    font-size: 16px;
+    color: #333;
+}
+
+.feed-url {
+    margin-bottom: 15px;
+    word-break: break-all;
+    color: #666;
+}
+
+.feed-details {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+}
+
+.detail-label {
+    font-weight: 600;
+    color: #555;
+    min-width: 100px;
+}
+
+.detail-value {
+    color: #333;
+    text-align: right;
+    flex: 1;
+}
+
+.feed-actions {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+.feed-actions .button {
+    flex: 1;
+    min-width: 70px;
+    text-align: center;
+}
+
+/* Desktop Responsive Feeds Layout */
+@media screen and (min-width: 1200px) {
+    .rsp-feeds-container {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* Keep original table styles for desktop */
 .wp-list-table .column-feed {
     width: 30%;
 }
@@ -124,7 +231,7 @@
     margin: 20px 0;
 }
 
-/* Responsive */
+/* Mobile Responsive Adjustments */
 @media screen and (max-width: 782px) {
     .queue-stats {
         flex-direction: column;
@@ -132,5 +239,59 @@
     
     .stat-box {
         margin-bottom: 10px;
+    }
+    
+    .rsp-card {
+        padding: 15px;
+        margin: 15px 0;
+    }
+    
+    .form-table th {
+        width: auto;
+        padding-bottom: 5px;
+    }
+    
+    .form-table td {
+        padding-left: 0;
+    }
+    
+    .form-table input[type="text"],
+    .form-table input[type="url"],
+    .form-table input[type="number"],
+    .form-table select,
+    .form-table textarea {
+        width: 100%;
+    }
+    
+    #language-options {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    
+    .button-small {
+        width: 100%;
+        margin-bottom: 5px;
+    }
+}
+
+/* Additional Mobile Optimizations */
+@media screen and (max-width: 480px) {
+    .feed-actions {
+        flex-direction: column;
+    }
+    
+    .feed-actions .button {
+        width: 100%;
+        margin-bottom: 5px;
+    }
+    
+    .detail-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .detail-value {
+        text-align: left;
+        margin-top: 2px;
     }
 }
