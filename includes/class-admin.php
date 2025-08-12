@@ -20,9 +20,11 @@ class RSP_Admin {
         add_action('wp_ajax_rsp_toggle_feed', [$this, 'ajax_toggle_feed']);
         add_action('wp_ajax_rsp_process_feed', [$this, 'ajax_process_feed']);
         add_action('wp_ajax_rsp_process_queue_now', [$this, 'ajax_process_queue_now']);
+        add_action('wp_ajax_rsp_get_feed', [$this, 'ajax_get_feed']);
         
         // Form handlers
         add_action('admin_post_rsp_add_feed', [$this, 'handle_add_feed']);
+        add_action('admin_post_rsp_update_feed', [$this, 'handle_update_feed']);
         add_action('admin_post_rsp_save_settings', [$this, 'handle_save_settings']);
     }
     
@@ -112,11 +114,12 @@ class RSP_Admin {
             <?php endif; ?>
             
             <div class="rsp-card">
-                <h2><?php _e('Add New Feed', 'rss-auto-publisher'); ?></h2>
+                <h2 id="feed-form-title"><?php _e('Add New Feed', 'rss-auto-publisher'); ?></h2>
                 
-                <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" id="rsp-add-feed-form">
-                    <input type="hidden" name="action" value="rsp_add_feed">
-                    <?php wp_nonce_field('rsp_add_feed', 'rsp_nonce'); ?>
+                <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" id="rsp-feed-form">
+                    <input type="hidden" name="action" value="rsp_add_feed" id="form-action">
+                    <input type="hidden" name="feed_id" id="feed_id" value="">
+                    <?php wp_nonce_field('rsp_feed_action', 'rsp_nonce'); ?>
                     
                     <table class="form-table">
                         <tr>
@@ -174,7 +177,7 @@ class RSP_Admin {
                             <th><?php _e('AI Enhancement', 'rss-auto-publisher'); ?></th>
                             <td>
                                 <label>
-                                    <input type="checkbox" name="enable_enhancement" value="1" checked>
+                                    <input type="checkbox" name="enable_enhancement" id="enable_enhancement" value="1" checked>
                                     <?php _e('Enable GPT-5 content enhancement', 'rss-auto-publisher'); ?>
                                 </label>
                                 <p class="description"><?php _e('Uses OpenAI GPT-5 to rewrite and improve content', 'rss-auto-publisher'); ?></p>
@@ -191,7 +194,7 @@ class RSP_Admin {
                                 <div id="language-options" style="display:none; margin-top:10px;">
                                     <?php foreach ($languages as $code => $name): ?>
                                         <label style="display:block; margin:5px 0;">
-                                            <input type="checkbox" name="target_languages[]" value="<?php echo $code; ?>">
+                                            <input type="checkbox" name="target_languages[]" value="<?php echo $code; ?>" class="language-checkbox">
                                             <?php echo esc_html($name); ?>
                                         </label>
                                     <?php endforeach; ?>
@@ -238,7 +241,10 @@ class RSP_Admin {
                         </tr>
                     </table>
                     
-                    <?php submit_button(__('Add Feed', 'rss-auto-publisher')); ?>
+                    <p class="submit">
+                        <button type="submit" class="button button-primary" id="submit-btn"><?php _e('Add Feed', 'rss-auto-publisher'); ?></button>
+                        <button type="button" class="button" id="cancel-edit" style="display:none;"><?php _e('Cancel', 'rss-auto-publisher'); ?></button>
+                    </p>
                 </form>
             </div>
             
@@ -246,52 +252,64 @@ class RSP_Admin {
             <div class="rsp-card">
                 <h2><?php _e('Existing Feeds', 'rss-auto-publisher'); ?></h2>
                 
-                <table class="wp-list-table widefat fixed striped">
-                    <thead>
-                        <tr>
-                            <th><?php _e('Feed', 'rss-auto-publisher'); ?></th>
-                            <th><?php _e('Category', 'rss-auto-publisher'); ?></th>
-                            <th><?php _e('Status', 'rss-auto-publisher'); ?></th>
-                            <th><?php _e('Enhancement', 'rss-auto-publisher'); ?></th>
-                            <th><?php _e('Translation', 'rss-auto-publisher'); ?></th>
-                            <th><?php _e('Last Check', 'rss-auto-publisher'); ?></th>
-                            <th><?php _e('Actions', 'rss-auto-publisher'); ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($feeds as $feed): 
-                            $category = get_term($feed->category_id);
-                            $languages_array = json_decode($feed->target_languages, true) ?: [];
-                        ?>
-                        <tr>
-                            <td>
-                                <strong><?php echo esc_html($feed->feed_name ?: 'Feed #' . $feed->id); ?></strong><br>
-                                <small><?php echo esc_html($feed->feed_url); ?></small>
-                            </td>
-                            <td><?php echo $category ? esc_html($category->name) : '-'; ?></td>
-                            <td>
+                <div class="rsp-feeds-container">
+                    <?php foreach ($feeds as $feed): 
+                        $category = get_term($feed->category_id);
+                        $languages_array = json_decode($feed->target_languages, true) ?: [];
+                    ?>
+                    <div class="rsp-feed-item">
+                        <div class="feed-info">
+                            <div class="feed-header">
+                                <strong class="feed-title"><?php echo esc_html($feed->feed_name ?: 'Feed #' . $feed->id); ?></strong>
                                 <span class="status-badge status-<?php echo $feed->is_active ? 'active' : 'paused'; ?>">
                                     <?php echo $feed->is_active ? __('Active', 'rss-auto-publisher') : __('Paused', 'rss-auto-publisher'); ?>
                                 </span>
-                            </td>
-                            <td><?php echo $feed->enable_enhancement ? '✓' : '-'; ?></td>
-                            <td>
-                                <?php 
-                                if ($feed->enable_translation && !empty($languages_array)) {
-                                    echo count($languages_array) . ' ' . __('languages', 'rss-auto-publisher');
-                                } else {
-                                    echo '-';
-                                }
-                                ?>
-                            </td>
-                            <td>
-                                <?php 
-                                echo $feed->last_checked ? 
-                                    human_time_diff(strtotime($feed->last_checked)) . ' ' . __('ago', 'rss-auto-publisher') : 
-                                    __('Never', 'rss-auto-publisher');
-                                ?>
-                            </td>
-                            <td>
+                            </div>
+                            
+                            <div class="feed-url">
+                                <small><?php echo esc_html($feed->feed_url); ?></small>
+                            </div>
+                            
+                            <div class="feed-details">
+                                <div class="detail-item">
+                                    <span class="detail-label"><?php _e('Category:', 'rss-auto-publisher'); ?></span>
+                                    <span class="detail-value"><?php echo $category ? esc_html($category->name) : '-'; ?></span>
+                                </div>
+                                
+                                <div class="detail-item">
+                                    <span class="detail-label"><?php _e('Enhancement:', 'rss-auto-publisher'); ?></span>
+                                    <span class="detail-value"><?php echo $feed->enable_enhancement ? '✓ ' . __('Enabled', 'rss-auto-publisher') : __('Disabled', 'rss-auto-publisher'); ?></span>
+                                </div>
+                                
+                                <div class="detail-item">
+                                    <span class="detail-label"><?php _e('Translation:', 'rss-auto-publisher'); ?></span>
+                                    <span class="detail-value">
+                                        <?php 
+                                        if ($feed->enable_translation && !empty($languages_array)) {
+                                            echo count($languages_array) . ' ' . __('languages', 'rss-auto-publisher');
+                                        } else {
+                                            echo __('Disabled', 'rss-auto-publisher');
+                                        }
+                                        ?>
+                                    </span>
+                                </div>
+                                
+                                <div class="detail-item">
+                                    <span class="detail-label"><?php _e('Last Check:', 'rss-auto-publisher'); ?></span>
+                                    <span class="detail-value">
+                                        <?php 
+                                        echo $feed->last_checked ? 
+                                            human_time_diff(strtotime($feed->last_checked)) . ' ' . __('ago', 'rss-auto-publisher') : 
+                                            __('Never', 'rss-auto-publisher');
+                                        ?>
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <div class="feed-actions">
+                                <button class="button button-small edit-feed" data-feed-id="<?php echo $feed->id; ?>">
+                                    <?php _e('Edit', 'rss-auto-publisher'); ?>
+                                </button>
                                 <button class="button button-small process-feed" data-feed-id="<?php echo $feed->id; ?>">
                                     <?php _e('Process', 'rss-auto-publisher'); ?>
                                 </button>
@@ -301,11 +319,11 @@ class RSP_Admin {
                                 <button class="button button-small delete-feed" data-feed-id="<?php echo $feed->id; ?>">
                                     <?php _e('Delete', 'rss-auto-publisher'); ?>
                                 </button>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
             <?php endif; ?>
         </div>
@@ -368,18 +386,6 @@ class RSP_Admin {
                             </td>
                         </tr>
                         
-                        <tr>
-                            <th><?php _e('Your Tier', 'rss-auto-publisher'); ?></th>
-                            <td>
-                                <strong>Tier <?php echo $model_info['tier']; ?></strong>
-                                <ul class="description">
-                                    <li><?php printf(__('Rate Limit: %s RPM', 'rss-auto-publisher'), number_format($model_info['tier_limits']['rpm'])); ?></li>
-                                    <li><?php printf(__('Token Limit: %s TPM', 'rss-auto-publisher'), number_format($model_info['tier_limits']['tpm'])); ?></li>
-                                    <li><?php printf(__('Batch Queue: %s tokens', 'rss-auto-publisher'), number_format($model_info['tier_limits']['batch_queue'])); ?></li>
-                                </ul>
-                            </td>
-                        </tr>
-                        
                         <?php if ($usage_stats): ?>
                         <tr>
                             <th><?php _e('API Usage (30 days)', 'rss-auto-publisher'); ?></th>
@@ -388,14 +394,6 @@ class RSP_Admin {
                                     <li><?php printf(__('Total Requests: %d', 'rss-auto-publisher'), $usage_stats->total_requests); ?></li>
                                     <li><?php printf(__('Total Tokens: %s', 'rss-auto-publisher'), number_format($usage_stats->total_tokens)); ?></li>
                                     <li><?php printf(__('Estimated Cost: $%.2f', 'rss-auto-publisher'), $usage_stats->total_cost); ?></li>
-                                    <li><?php printf(__('Average Tokens/Request: %s', 'rss-auto-publisher'), number_format($usage_stats->avg_tokens)); ?></li>
-                                </ul>
-                                
-                                <h4><?php _e('Today\'s Usage', 'rss-auto-publisher'); ?></h4>
-                                <ul>
-                                    <li><?php printf(__('Requests: %d / %d', 'rss-auto-publisher'), $usage_stats->daily_requests, $usage_stats->rpm_limit); ?></li>
-                                    <li><?php printf(__('Tokens: %s / %s', 'rss-auto-publisher'), number_format($usage_stats->daily_tokens), number_format($usage_stats->tpm_limit)); ?></li>
-                                    <li><?php printf(__('Cost: $%.2f', 'rss-auto-publisher'), $usage_stats->daily_cost); ?></li>
                                 </ul>
                             </td>
                         </tr>
@@ -518,6 +516,20 @@ class RSP_Admin {
         ]);
     }
     
+    public function ajax_get_feed() {
+        check_ajax_referer('rsp-ajax', 'nonce');
+        
+        $feed_id = intval($_POST['feed_id']);
+        $feed = RSP_Database::get_feed($feed_id);
+        
+        if ($feed) {
+            $feed->target_languages = json_decode($feed->target_languages, true) ?: [];
+            wp_send_json_success($feed);
+        }
+        
+        wp_send_json_error(__('Feed not found', 'rss-auto-publisher'));
+    }
+    
     public function ajax_process_feed() {
         check_ajax_referer('rsp-ajax', 'nonce');
         
@@ -572,7 +584,7 @@ class RSP_Admin {
      * Handle add feed
      */
     public function handle_add_feed() {
-        check_admin_referer('rsp_add_feed', 'rsp_nonce');
+        check_admin_referer('rsp_feed_action', 'rsp_nonce');
         
         $data = [
             'feed_url' => esc_url_raw($_POST['feed_url']),
@@ -596,6 +608,45 @@ class RSP_Admin {
             RSP_Cron::schedule_feed($feed_id, $data['update_frequency']);
             
             wp_redirect(admin_url('admin.php?page=rss-auto-publisher&added=1'));
+        } else {
+            wp_redirect(admin_url('admin.php?page=rss-auto-publisher&error=1'));
+        }
+        exit;
+    }
+    
+    /**
+     * Handle update feed
+     */
+    public function handle_update_feed() {
+        check_admin_referer('rsp_feed_action', 'rsp_nonce');
+        
+        $feed_id = intval($_POST['feed_id']);
+        
+        if (!$feed_id) {
+            wp_redirect(admin_url('admin.php?page=rss-auto-publisher&error=1'));
+            exit;
+        }
+        
+        $data = [
+            'feed_url' => esc_url_raw($_POST['feed_url']),
+            'feed_name' => sanitize_text_field($_POST['feed_name']),
+            'category_id' => intval($_POST['category_id']),
+            'author_id' => intval($_POST['author_id']),
+            'post_status' => sanitize_text_field($_POST['post_status']),
+            'min_word_count' => intval($_POST['min_word_count']),
+            'enable_enhancement' => isset($_POST['enable_enhancement']) ? 1 : 0,
+            'enable_translation' => isset($_POST['enable_translation']) ? 1 : 0,
+            'target_languages' => isset($_POST['target_languages']) ? $_POST['target_languages'] : [],
+            'enhancement_prompt' => sanitize_textarea_field($_POST['enhancement_prompt']),
+            'update_frequency' => sanitize_text_field($_POST['update_frequency']),
+            'items_per_import' => intval($_POST['items_per_import'])
+        ];
+        
+        if (RSP_Database::update_feed($feed_id, $data)) {
+            // Update cron schedule
+            RSP_Cron::schedule_feed($feed_id, $data['update_frequency']);
+            
+            wp_redirect(admin_url('admin.php?page=rss-auto-publisher&updated=1'));
         } else {
             wp_redirect(admin_url('admin.php?page=rss-auto-publisher&error=1'));
         }
