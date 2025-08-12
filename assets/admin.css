@@ -1,0 +1,136 @@
+/* RSS Auto Publisher Admin Styles */
+.rsp-admin {
+    max-width: 1200px;
+}
+
+.rsp-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.rsp-card h2 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.status-active {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-paused {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.queue-stats {
+    display: flex;
+    gap: 20px;
+    margin: 20px 0;
+}
+
+.stat-box {
+    flex: 1;
+    text-align: center;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.stat-value {
+    display: block;
+    font-size: 32px;
+    font-weight: bold;
+    color: #2271b1;
+}
+
+.stat-label {
+    display: block;
+    margin-top: 5px;
+    color: #666;
+}
+
+#test-results {
+    margin-top: 10px;
+}
+
+#test-results.success {
+    color: #155724;
+    background: #d4edda;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+#test-results.error {
+    color: #721c24;
+    background: #f8d7da;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+.form-table th {
+    width: 200px;
+}
+
+.wp-list-table .column-feed {
+    width: 30%;
+}
+
+.wp-list-table .column-category {
+    width: 15%;
+}
+
+.wp-list-table .column-status {
+    width: 10%;
+}
+
+.wp-list-table .column-enhancement {
+    width: 10%;
+}
+
+.wp-list-table .column-translation {
+    width: 10%;
+}
+
+.wp-list-table .column-last-check {
+    width: 15%;
+}
+
+.wp-list-table .column-actions {
+    width: 10%;
+}
+
+.button-small {
+    font-size: 12px !important;
+    line-height: 22px !important;
+    height: 24px !important;
+    padding: 0 8px !important;
+}
+
+.notice {
+    margin: 20px 0;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+    .queue-stats {
+        flex-direction: column;
+    }
+    
+    .stat-box {
+        margin-bottom: 10px;
+    }
+}
