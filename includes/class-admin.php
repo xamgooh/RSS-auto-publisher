@@ -252,74 +252,72 @@ class RSP_Admin {
             <div class="rsp-card">
                 <h2><?php _e('Existing Feeds', 'rss-auto-publisher'); ?></h2>
                 
-                <div class="rsp-feeds-container">
+                <div class="rsp-feeds-grid">
                     <?php foreach ($feeds as $feed): 
                         $category = get_term($feed->category_id);
                         $languages_array = json_decode($feed->target_languages, true) ?: [];
                     ?>
-                    <div class="rsp-feed-item">
-                        <div class="feed-info">
-                            <div class="feed-header">
-                                <strong class="feed-title"><?php echo esc_html($feed->feed_name ?: 'Feed #' . $feed->id); ?></strong>
-                                <span class="status-badge status-<?php echo $feed->is_active ? 'active' : 'paused'; ?>">
-                                    <?php echo $feed->is_active ? __('Active', 'rss-auto-publisher') : __('Paused', 'rss-auto-publisher'); ?>
+                    <div class="rsp-feed-card">
+                        <div class="feed-card-header">
+                            <h3 class="feed-card-title"><?php echo esc_html($feed->feed_name ?: 'Feed #' . $feed->id); ?></h3>
+                            <span class="status-badge status-<?php echo $feed->is_active ? 'active' : 'paused'; ?>">
+                                <?php echo $feed->is_active ? __('Active', 'rss-auto-publisher') : __('Paused', 'rss-auto-publisher'); ?>
+                            </span>
+                        </div>
+                        
+                        <div class="feed-card-url">
+                            <small><?php echo esc_html($feed->feed_url); ?></small>
+                        </div>
+                        
+                        <div class="feed-card-meta">
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Category:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value"><?php echo $category ? esc_html($category->name) : '-'; ?></span>
+                            </div>
+                            
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Enhancement:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value"><?php echo $feed->enable_enhancement ? '✓' : '✗'; ?></span>
+                            </div>
+                            
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Translation:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value">
+                                    <?php 
+                                    if ($feed->enable_translation && !empty($languages_array)) {
+                                        echo count($languages_array) . ' ' . __('langs', 'rss-auto-publisher');
+                                    } else {
+                                        echo '✗';
+                                    }
+                                    ?>
                                 </span>
                             </div>
                             
-                            <div class="feed-url">
-                                <small><?php echo esc_html($feed->feed_url); ?></small>
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Last Check:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value">
+                                    <?php 
+                                    echo $feed->last_checked ? 
+                                        human_time_diff(strtotime($feed->last_checked)) . ' ' . __('ago', 'rss-auto-publisher') : 
+                                        __('Never', 'rss-auto-publisher');
+                                    ?>
+                                </span>
                             </div>
-                            
-                            <div class="feed-details">
-                                <div class="detail-item">
-                                    <span class="detail-label"><?php _e('Category:', 'rss-auto-publisher'); ?></span>
-                                    <span class="detail-value"><?php echo $category ? esc_html($category->name) : '-'; ?></span>
-                                </div>
-                                
-                                <div class="detail-item">
-                                    <span class="detail-label"><?php _e('Enhancement:', 'rss-auto-publisher'); ?></span>
-                                    <span class="detail-value"><?php echo $feed->enable_enhancement ? '✓ ' . __('Enabled', 'rss-auto-publisher') : __('Disabled', 'rss-auto-publisher'); ?></span>
-                                </div>
-                                
-                                <div class="detail-item">
-                                    <span class="detail-label"><?php _e('Translation:', 'rss-auto-publisher'); ?></span>
-                                    <span class="detail-value">
-                                        <?php 
-                                        if ($feed->enable_translation && !empty($languages_array)) {
-                                            echo count($languages_array) . ' ' . __('languages', 'rss-auto-publisher');
-                                        } else {
-                                            echo __('Disabled', 'rss-auto-publisher');
-                                        }
-                                        ?>
-                                    </span>
-                                </div>
-                                
-                                <div class="detail-item">
-                                    <span class="detail-label"><?php _e('Last Check:', 'rss-auto-publisher'); ?></span>
-                                    <span class="detail-value">
-                                        <?php 
-                                        echo $feed->last_checked ? 
-                                            human_time_diff(strtotime($feed->last_checked)) . ' ' . __('ago', 'rss-auto-publisher') : 
-                                            __('Never', 'rss-auto-publisher');
-                                        ?>
-                                    </span>
-                                </div>
-                            </div>
-                            
-                            <div class="feed-actions">
-                                <button class="button button-small edit-feed" data-feed-id="<?php echo $feed->id; ?>">
-                                    <?php _e('Edit', 'rss-auto-publisher'); ?>
-                                </button>
-                                <button class="button button-small process-feed" data-feed-id="<?php echo $feed->id; ?>">
-                                    <?php _e('Process', 'rss-auto-publisher'); ?>
-                                </button>
-                                <button class="button button-small toggle-feed" data-feed-id="<?php echo $feed->id; ?>" data-active="<?php echo $feed->is_active; ?>">
-                                    <?php echo $feed->is_active ? __('Pause', 'rss-auto-publisher') : __('Resume', 'rss-auto-publisher'); ?>
-                                </button>
-                                <button class="button button-small delete-feed" data-feed-id="<?php echo $feed->id; ?>">
-                                    <?php _e('Delete', 'rss-auto-publisher'); ?>
-                                </button>
-                            </div>
+                        </div>
+                        
+                        <div class="feed-card-actions">
+                            <button type="button" class="button button-small edit-feed" data-feed-id="<?php echo $feed->id; ?>">
+                                <?php _e('Edit', 'rss-auto-publisher'); ?>
+                            </button>
+                            <button type="button" class="button button-small process-feed" data-feed-id="<?php echo $feed->id; ?>">
+                                <?php _e('Process', 'rss-auto-publisher'); ?>
+                            </button>
+                            <button type="button" class="button button-small toggle-feed" data-feed-id="<?php echo $feed->id; ?>" data-active="<?php echo $feed->is_active; ?>">
+                                <?php echo $feed->is_active ? __('Pause', 'rss-auto-publisher') : __('Resume', 'rss-auto-publisher'); ?>
+                            </button>
+                            <button type="button" class="button button-small delete-feed" data-feed-id="<?php echo $feed->id; ?>">
+                                <?php _e('Delete', 'rss-auto-publisher'); ?>
+                            </button>
                         </div>
                     </div>
                     <?php endforeach; ?>
