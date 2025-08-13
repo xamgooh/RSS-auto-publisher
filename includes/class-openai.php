@@ -1,7 +1,7 @@
 <?php
 /**
  * OpenAI GPT-5 Integration for RSS Auto Publisher
- * Uses the /v1/responses endpoint with GPT-5
+ * Uses the /v1/chat/completions endpoint with GPT-5
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -13,7 +13,7 @@ class RSP_OpenAI {
      */
     private $api_key;
     private $model = 'gpt-5'; // Fixed to GPT-5 (latest flagship model)
-    private $api_url = 'https://api.openai.com/v1/responses';
+    private $api_url = 'https://api.openai.com/v1/chat/completions';
     
     /**
      * Model pricing per 1M tokens
@@ -74,22 +74,18 @@ class RSP_OpenAI {
         $prompt = $this->build_smart_prompt($title, $analysis, $feed_settings);
         
         // Generate content
-        $input = [
+        $messages = [
             [
                 'role' => 'system',
-                'content' => [
-                    ['type' => 'input_text', 'text' => 'You are an expert content writer specializing in creating engaging, SEO-optimized articles from news titles and topics.']
-                ]
+                'content' => 'You are an expert content writer specializing in creating engaging, SEO-optimized articles from news titles and topics.'
             ],
             [
                 'role' => 'user', 
-                'content' => [
-                    ['type' => 'input_text', 'text' => $prompt]
-                ]
+                'content' => $prompt
             ]
         ];
         
-        $response = $this->call_api($input);
+        $response = $this->call_api($messages);
         if (!$response) {
             return false;
         }
@@ -206,10 +202,10 @@ class RSP_OpenAI {
         $options = wp_parse_args($options, $defaults);
         
         // Build the enhancement input with role-based messages
-        $input = $this->build_enhancement_input($title, $content, $options);
+        $messages = $this->build_enhancement_input($title, $content, $options);
         
         // Make API call
-        $response = $this->call_api($input);
+        $response = $this->call_api($messages);
         
         if (!$response) {
             return false;
@@ -232,23 +228,19 @@ class RSP_OpenAI {
         $target_name = $this->supported_languages[$target_language] ?? $target_language;
         
         // Build translation input using role-based format
-        $input = [
+        $messages = [
             [
                 'role' => 'system',
-                'content' => [
-                    ['type' => 'input_text', 'text' => "You are a professional translator. Translate content to {$target_name} while preserving HTML formatting, tone, and ensuring natural fluent language."]
-                ]
+                'content' => "You are a professional translator. Translate content to {$target_name} while preserving HTML formatting, tone, and ensuring natural fluent language."
             ],
             [
                 'role' => 'user',
-                'content' => [
-                    ['type' => 'input_text', 'text' => "Translate this to {$target_name}. Return as JSON with 'title' and 'content' fields:\n\nTitle: {$title}\n\nContent:\n{$content}"]
-                ]
+                'content' => "Translate this to {$target_name}. Return as JSON with 'title' and 'content' fields:\n\nTitle: {$title}\n\nContent:\n{$content}"
             ]
         ];
         
         // Make API call
-        $response = $this->call_api($input, 0.3); // Lower temperature for translation
+        $response = $this->call_api($messages, 0.3); // Lower temperature for translation
         
         if (!$response) {
             return false;
@@ -312,32 +304,25 @@ class RSP_OpenAI {
         
         $requirements_text = implode("\n- ", $requirements);
         
-        // Build input array for GPT-5 /v1/responses format
-        $input = [
+        // Build messages array for GPT-5 chat/completions format
+        $messages = [
             [
                 'role' => 'system',
-                'content' => [
-                    ['type' => 'input_text', 'text' => $system_prompt]
-                ]
+                'content' => $system_prompt
             ],
             [
                 'role' => 'user',
-                'content' => [
-                    [
-                        'type' => 'input_text', 
-                        'text' => "Enhance this content following these requirements:\n- {$requirements_text}\n\nReturn as JSON with 'title' and 'content' fields.\n\nOriginal Title: {$title}\n\nOriginal Content:\n{$content}"
-                    ]
-                ]
+                'content' => "Enhance this content following these requirements:\n- {$requirements_text}\n\nReturn as JSON with 'title' and 'content' fields.\n\nOriginal Title: {$title}\n\nOriginal Content:\n{$content}"
             ]
         ];
         
-        return $input;
+        return $messages;
     }
     
     /**
-     * Call OpenAI GPT-5 API using /v1/responses endpoint
+     * Call OpenAI GPT-5 API using /v1/chat/completions endpoint
      */
-    private function call_api($input, $temperature = 0.7) {
+    private function call_api($messages, $temperature = 0.7) {
         $headers = [
             'Authorization' => 'Bearer ' . $this->api_key,
             'Content-Type' => 'application/json',
@@ -346,13 +331,11 @@ class RSP_OpenAI {
         // Build request body for GPT-5
         $body = [
             'model' => $this->model,
-            'input' => $input,
+            'messages' => $messages,
             'temperature' => $temperature,
-            'max_output_tokens' => 4000, // Reasonable limit for articles
-            'text' => [
-                'format' => [
-                    'type' => 'json' // Request JSON format
-                ]
+            'max_tokens' => 4000,
+            'response_format' => [
+                'type' => 'json_object'
             ]
         ];
         
@@ -388,14 +371,8 @@ class RSP_OpenAI {
             return false;
         }
         
-        // Check response status
-        if ($data['status'] !== 'completed') {
-            error_log('GPT-5 API: Response not completed - Status: ' . $data['status']);
-            return false;
-        }
-        
         // Extract the text from the GPT-5 response format
-        if (!isset($data['output'][0]['content'][0]['text'])) {
+        if (!isset($data['choices'][0]['message']['content'])) {
             error_log('GPT-5 API: Unexpected response format');
             return false;
         }
@@ -405,7 +382,7 @@ class RSP_OpenAI {
             $this->record_usage($data['usage']);
         }
         
-        return $data['output'][0]['content'][0]['text'];
+        return $data['choices'][0]['message']['content'];
     }
     
     /**
@@ -495,9 +472,9 @@ class RSP_OpenAI {
         $subject = '[RSS Auto Publisher] GPT-5 Rate Limit Reached';
         $message = "Your RSS Auto Publisher has hit the GPT-5 rate limit.\n\n";
         $message .= "The system will automatically retry after {$retry_after} seconds.\n\n";
-        $message .= "Your current tier limits (Tier 2):\n";
+        $message .= "Your current tier limits (Tier 3):\n";
         $message .= "- 5,000 requests per minute\n";
-        $message .= "- 450,000 tokens per minute\n\n";
+        $message .= "- 800,000 tokens per minute\n\n";
         $message .= "Consider upgrading your OpenAI tier for higher limits.";
         
         wp_mail($admin_email, $subject, $message);
@@ -507,26 +484,17 @@ class RSP_OpenAI {
      * Record API usage for cost tracking
      */
     private function record_usage($usage_data) {
-        $input_tokens = $usage_data['input_tokens'] ?? 0;
-        $output_tokens = $usage_data['output_tokens'] ?? 0;
+        $input_tokens = $usage_data['prompt_tokens'] ?? 0;
+        $output_tokens = $usage_data['completion_tokens'] ?? 0;
         $total_tokens = $usage_data['total_tokens'] ?? 0;
-        
-        // Check for cached tokens (90% discount)
-        $cached_tokens = 0;
-        if (isset($usage_data['input_tokens_details']['cached_tokens'])) {
-            $cached_tokens = $usage_data['input_tokens_details']['cached_tokens'];
-        }
-        
-        $non_cached_input = $input_tokens - $cached_tokens;
         
         // Calculate cost based on GPT-5 pricing
         $cost = 0;
-        $cost += ($non_cached_input / 1000000) * $this->pricing['input'];
-        $cost += ($cached_tokens / 1000000) * $this->pricing['cached_input'];
+        $cost += ($input_tokens / 1000000) * $this->pricing['input'];
         $cost += ($output_tokens / 1000000) * $this->pricing['output'];
         
         // Store detailed usage
-        RSP_Database::record_api_usage('openai-gpt5', 'response', $total_tokens, $cost, true);
+        RSP_Database::record_api_usage('openai-gpt5', 'chat/completions', $total_tokens, $cost, true);
         
         // Update daily usage counter for rate limiting awareness
         $daily_usage = get_option('rsp_daily_token_usage', [
@@ -580,9 +548,9 @@ class RSP_OpenAI {
         $stats->daily_requests = $daily_usage['requests'] ?? 0;
         $stats->daily_cost = $daily_usage['cost'] ?? 0;
         
-        // Calculate remaining capacity (Tier 2 limits)
+        // Calculate remaining capacity (Tier 3 limits)
         $stats->rpm_limit = 5000;
-        $stats->tpm_limit = 450000;
+        $stats->tpm_limit = 800000;
         $stats->rpm_used = $stats->daily_requests;
         $stats->tpm_used = $stats->daily_tokens;
         $stats->rpm_remaining = max(0, $stats->rpm_limit - $stats->rpm_used);
@@ -601,11 +569,11 @@ class RSP_OpenAI {
             'context_window' => 400000,
             'max_output' => 128000,
             'knowledge_cutoff' => 'September 30, 2024',
-            'tier' => 2,
+            'tier' => 3,
             'tier_limits' => [
                 'rpm' => 5000,
-                'tpm' => 450000,
-                'batch_queue' => 1350000
+                'tpm' => 800000,
+                'batch_queue' => 100000000
             ],
             'pricing' => $this->pricing,
             'capabilities' => [
