@@ -1083,4 +1083,7 @@ class RSP_Admin {
         update_option('rsp_enable_content_validation', isset($_POST['enable_content_validation']) ? 1 : 0);
         update_option('rsp_enable_debug_logging', isset($_POST['enable_debug_logging']) ? 1 : 0);
         
-        wp_redirect(admin_url('admin.php?
+        wp_redirect(admin_url('admin.php??page=rsp-settings&saved=1'));
+        exit;
+    }
+}
