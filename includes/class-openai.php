@@ -2,7 +2,7 @@
 /**
  * OpenAI GPT-5 Integration for RSS Auto Publisher
  * Uses the /v1/chat/completions endpoint with GPT-5
- * DEBUG VERSION - REMOVE DEBUG CODE AFTER TESTING
+ * Version 1.1.1 - Fixed max_completion_tokens parameter
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -43,16 +43,13 @@ class RSP_OpenAI {
      */
     public function __construct() {
         $this->api_key = get_option('rsp_openai_api_key');
-        error_log('RSP DEBUG: OpenAI class initialized. API Key present: ' . (!empty($this->api_key) ? 'YES' : 'NO'));
     }
     
     /**
      * Check if API is configured
      */
     public function is_configured() {
-        $configured = !empty($this->api_key);
-        error_log('RSP DEBUG: is_configured() = ' . ($configured ? 'TRUE' : 'FALSE'));
-        return $configured;
+        return !empty($this->api_key);
     }
     
     /**
@@ -66,23 +63,16 @@ class RSP_OpenAI {
      * Enhanced content creation using title analysis
      */
     public function create_content_from_title($title, $description, $feed_settings) {
-        error_log('RSP DEBUG: create_content_from_title called with title: ' . $title);
-        error_log('RSP DEBUG: Description: ' . $description);
-        error_log('RSP DEBUG: Feed settings: ' . json_encode($feed_settings));
-        
         if (!$this->is_configured()) {
-            error_log('RSP DEBUG: OpenAI not configured, returning false');
             return false;
         }
         
         // Analyze the content
         $analyzer = new RSP_Content_Analyzer();
         $analysis = $analyzer->analyze_content($title, $description, $feed_settings);
-        error_log('RSP DEBUG: Content analysis: ' . json_encode($analysis));
         
         // Build enhanced prompt
         $prompt = $this->build_smart_prompt($title, $analysis, $feed_settings);
-        error_log('RSP DEBUG: Generated prompt length: ' . strlen($prompt));
         
         // Generate content
         $messages = [
@@ -98,12 +88,10 @@ class RSP_OpenAI {
         
         $response = $this->call_api($messages);
         if (!$response) {
-            error_log('RSP DEBUG: call_api returned false');
             return false;
         }
         
         $parsed = $this->parse_json_response($response);
-        error_log('RSP DEBUG: Final parsed result: ' . json_encode($parsed));
         return $parsed;
     }
     
@@ -201,8 +189,6 @@ class RSP_OpenAI {
      * Enhance content using GPT-5 (legacy method for backwards compatibility)
      */
     public function enhance_content($title, $content, $options = []) {
-        error_log('RSP DEBUG: enhance_content called (legacy method)');
-        
         if (!$this->is_configured()) {
             return false;
         }
@@ -237,8 +223,6 @@ class RSP_OpenAI {
      * Translate content using GPT-5
      */
     public function translate_content($title, $content, $target_language, $source_language = 'auto') {
-        error_log('RSP DEBUG: translate_content called');
-        
         if (!$this->is_configured()) {
             return false;
         }
@@ -339,30 +323,24 @@ class RSP_OpenAI {
     
     /**
      * Call OpenAI GPT-5 API using /v1/chat/completions endpoint
+     * FIXED: Using max_completion_tokens instead of max_tokens
      */
     private function call_api($messages, $temperature = 0.7) {
-        error_log('RSP DEBUG: call_api called with temperature: ' . $temperature);
-        error_log('RSP DEBUG: Messages being sent: ' . json_encode($messages));
-        error_log('RSP DEBUG: API Key present: ' . (!empty($this->api_key) ? 'YES' : 'NO'));
-        error_log('RSP DEBUG: API URL: ' . $this->api_url);
-        
         $headers = [
             'Authorization' => 'Bearer ' . $this->api_key,
             'Content-Type' => 'application/json',
         ];
         
-        // Build request body for GPT-5
+        // Build request body for GPT-5 with FIXED parameter name
         $body = [
             'model' => $this->model,
             'messages' => $messages,
             'temperature' => $temperature,
-            'max_tokens' => 4000,
+            'max_completion_tokens' => 4000, // FIXED: Changed from max_tokens
             'response_format' => [
                 'type' => 'json_object'
             ]
         ];
-        
-        error_log('RSP DEBUG: Request body: ' . json_encode($body));
         
         $response = wp_remote_post($this->api_url, [
             'headers' => $headers,
@@ -371,30 +349,32 @@ class RSP_OpenAI {
         ]);
         
         if (is_wp_error($response)) {
-            error_log('RSP DEBUG: WordPress error: ' . $response->get_error_message());
+            error_log('RSS Auto Publisher API Error: ' . $response->get_error_message());
             return false;
         }
         
         $response_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
         
-        error_log('RSP DEBUG: Response code: ' . $response_code);
-        error_log('RSP DEBUG: Raw API response: ' . $response_body);
-        
         $data = json_decode($response_body, true);
         
         if (!$data) {
-            error_log('RSP DEBUG: Failed to decode JSON response');
+            error_log('RSS Auto Publisher: Failed to decode API response');
             return false;
         }
         
         // Check for errors
         if (isset($data['error'])) {
-            error_log('RSP DEBUG: API Error: ' . json_encode($data['error']));
+            error_log('RSS Auto Publisher API Error: ' . json_encode($data['error']));
             
             // Check for rate limit errors
             if ($response_code === 429) {
                 $this->handle_rate_limit($data['error']);
+            }
+            
+            // Special handling for parameter errors (in case API changes again)
+            if (isset($data['error']['param']) && $data['error']['param'] === 'max_completion_tokens') {
+                error_log('RSS Auto Publisher: max_completion_tokens parameter issue detected');
             }
             
             return false;
@@ -402,65 +382,46 @@ class RSP_OpenAI {
         
         // Extract the text from the GPT-5 response format
         if (!isset($data['choices'][0]['message']['content'])) {
-            error_log('RSP DEBUG: Unexpected response format - choices not found');
-            error_log('RSP DEBUG: Available keys: ' . implode(', ', array_keys($data)));
+            error_log('RSS Auto Publisher: Unexpected response format from API');
             return false;
         }
         
         // Record usage for cost tracking
         if (isset($data['usage'])) {
-            error_log('RSP DEBUG: Token usage: ' . json_encode($data['usage']));
             $this->record_usage($data['usage']);
         }
         
-        $content = $data['choices'][0]['message']['content'];
-        error_log('RSP DEBUG: Extracted content length: ' . strlen($content));
-        error_log('RSP DEBUG: Content preview: ' . substr($content, 0, 200) . '...');
-        
-        return $content;
+        return $data['choices'][0]['message']['content'];
     }
     
     /**
      * Parse JSON response from GPT-5
      */
     private function parse_json_response($text) {
-        error_log('RSP DEBUG: parse_json_response called with text length: ' . strlen($text));
-        error_log('RSP DEBUG: Raw GPT-5 response: ' . $text);
-        
         // Try to parse as JSON first
         $decoded = json_decode($text, true);
         
         if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
-            error_log('RSP DEBUG: Successfully parsed JSON - Title: ' . substr($decoded['title'], 0, 100));
-            error_log('RSP DEBUG: Content length: ' . strlen($decoded['content']));
-            error_log('RSP DEBUG: Content preview: ' . substr($decoded['content'], 0, 200) . '...');
             return $decoded;
         }
         
-        error_log('RSP DEBUG: JSON parsing failed, trying fallbacks');
-        error_log('RSP DEBUG: JSON error: ' . json_last_error_msg());
-        
         // Fallback: extract JSON from text if wrapped in markdown or other formatting
         if (preg_match('/```json\s*(.+?)\s*```/s', $text, $matches)) {
-            error_log('RSP DEBUG: Found JSON in code block');
             $decoded = json_decode($matches[1], true);
             if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
-                error_log('RSP DEBUG: Successfully parsed JSON from code block');
                 return $decoded;
             }
         }
         
         // Final fallback: try to find JSON anywhere in the text
         if (preg_match('/\{[^}]*"title"[^}]*"content"[^}]*\}/s', $text, $matches)) {
-            error_log('RSP DEBUG: Found JSON pattern in text');
             $decoded = json_decode($matches[0], true);
             if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
-                error_log('RSP DEBUG: Successfully parsed JSON pattern');
                 return $decoded;
             }
         }
         
-        error_log('RSP DEBUG: All JSON parsing failed, using fallback parser');
+        // Use fallback parser if JSON parsing fails
         return $this->parse_enhancement_response($text);
     }
     
@@ -468,8 +429,6 @@ class RSP_OpenAI {
      * Parse enhancement response (fallback for non-JSON)
      */
     private function parse_enhancement_response($text) {
-        error_log('RSP DEBUG: Using fallback enhancement parser');
-        
         $result = [
             'title' => '',
             'content' => ''
@@ -478,12 +437,10 @@ class RSP_OpenAI {
         // Look for TITLE: and CONTENT: markers
         if (preg_match('/(?:TITLE|Title):\s*(.+?)(?:\n|$)/i', $text, $title_match)) {
             $result['title'] = trim($title_match[1]);
-            error_log('RSP DEBUG: Found title with marker: ' . $result['title']);
         }
         
         if (preg_match('/(?:CONTENT|Content):\s*(.+)/is', $text, $content_match)) {
             $result['content'] = trim($content_match[1]);
-            error_log('RSP DEBUG: Found content with marker, length: ' . strlen($result['content']));
         }
         
         // If still empty, treat first line as title, rest as content
@@ -491,7 +448,6 @@ class RSP_OpenAI {
             $lines = explode("\n", $text, 2);
             $result['title'] = trim($lines[0]);
             $result['content'] = isset($lines[1]) ? trim($lines[1]) : '';
-            error_log('RSP DEBUG: Used line splitting - Title: ' . $result['title'] . ', Content length: ' . strlen($result['content']));
         }
         
         return $result;
@@ -505,7 +461,7 @@ class RSP_OpenAI {
         $retry_after = isset($error['retry_after']) ? intval($error['retry_after']) : 60;
         set_transient('rsp_rate_limited', true, $retry_after);
         
-        error_log("GPT-5 Rate Limited - Retry after {$retry_after} seconds");
+        error_log("RSS Auto Publisher: GPT-5 Rate Limited - Retry after {$retry_after} seconds");
         
         // Send admin notification
         $this->send_rate_limit_notification($retry_after);
