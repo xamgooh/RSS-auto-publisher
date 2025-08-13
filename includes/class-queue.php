@@ -1,6 +1,7 @@
 <?php
 /**
  * Queue System for RSS Auto Publisher
+ * DEBUG VERSION - REMOVE DEBUG CODE AFTER TESTING
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -21,9 +22,11 @@ class RSP_Queue {
     public static function add_item($feed_id, $type, $data, $priority = 10) {
         global $wpdb;
         
+        error_log('RSP DEBUG: Adding item to queue - Feed: ' . $feed_id . ', Type: ' . $type . ', Priority: ' . $priority);
+        
         $table = $wpdb->prefix . 'rsp_queue';
         
-        return $wpdb->insert($table, [
+        $result = $wpdb->insert($table, [
             'feed_id' => $feed_id,
             'type' => $type,
             'status' => 'pending',
@@ -31,6 +34,9 @@ class RSP_Queue {
             'priority' => $priority,
             'created_at' => current_time('mysql')
         ]);
+        
+        error_log('RSP DEBUG: Queue item added: ' . ($result ? 'SUCCESS' : 'FAILED'));
+        return $result;
     }
     
     /**
@@ -38,6 +44,8 @@ class RSP_Queue {
      */
     public static function process_queue() {
         global $wpdb;
+        
+        error_log('RSP DEBUG: Processing queue started');
         
         $table = $wpdb->prefix . 'rsp_queue';
         $batch_size = get_option('rsp_queue_batch_size', 5);
@@ -52,9 +60,14 @@ class RSP_Queue {
             $batch_size
         ));
         
+        error_log('RSP DEBUG: Found ' . count($items) . ' pending items to process');
+        
         foreach ($items as $item) {
+            error_log('RSP DEBUG: Processing queue item ID: ' . $item->id . ', Type: ' . $item->type);
             self::process_queue_item($item);
         }
+        
+        error_log('RSP DEBUG: Queue processing completed');
     }
     
     /**
@@ -62,6 +75,8 @@ class RSP_Queue {
      */
     private static function process_queue_item($item) {
         global $wpdb;
+        
+        error_log('RSP DEBUG: Processing single item - ID: ' . $item->id . ', Type: ' . $item->type . ', Attempts: ' . $item->attempts);
         
         $table = $wpdb->prefix . 'rsp_queue';
         
@@ -79,38 +94,50 @@ class RSP_Queue {
             $data = json_decode($item->data, true);
             $feed = RSP_Database::get_feed($item->feed_id);
             
+            error_log('RSP DEBUG: Decoded data keys: ' . implode(', ', array_keys($data)));
+            error_log('RSP DEBUG: Feed enhancement enabled: ' . ($feed->enable_enhancement ? 'YES' : 'NO'));
+            
             switch ($item->type) {
                 case 'process_item':
+                    error_log('RSP DEBUG: Processing item type: process_item');
                     $success = self::process_feed_item($feed, $data);
                     break;
                     
                 case 'create_smart_content':
+                    error_log('RSP DEBUG: Processing item type: create_smart_content');
                     $success = self::create_smart_content($feed, $data);
                     break;
                     
                 case 'enhance_content':
+                    error_log('RSP DEBUG: Processing item type: enhance_content (legacy)');
                     $success = self::enhance_content($feed, $data);
                     break;
                     
                 case 'translate_content':
+                    error_log('RSP DEBUG: Processing item type: translate_content');
                     $success = self::translate_content($feed, $data);
                     break;
                     
                 case 'create_post':
+                    error_log('RSP DEBUG: Processing item type: create_post');
                     $success = self::create_post($feed, $data);
                     break;
             }
             
+            error_log('RSP DEBUG: Item processing result: ' . ($success ? 'SUCCESS' : 'FAILED'));
+            
         } catch (Exception $e) {
             $error_message = $e->getMessage();
-            error_log('Queue processing error: ' . $error_message);
+            error_log('RSP DEBUG: Exception during processing: ' . $error_message);
         }
         
         // Update queue item status
         if ($success) {
+            error_log('RSP DEBUG: Removing successful item from queue');
             $wpdb->delete($table, ['id' => $item->id]);
         } else {
             $status = ($item->attempts >= $item->max_attempts) ? 'failed' : 'pending';
+            error_log('RSP DEBUG: Setting item status to: ' . $status);
             
             $wpdb->update($table, [
                 'status' => $status,
@@ -123,6 +150,8 @@ class RSP_Queue {
      * Process feed item (updated to use new smart content creation)
      */
     private static function process_feed_item($feed, $data) {
+        error_log('RSP DEBUG: process_feed_item called for feed ' . $feed->id);
+        
         // Load feed settings (including new options)
         $feed_settings = [
             'content_domain' => $feed->content_domain ?? 'auto',
@@ -135,11 +164,17 @@ class RSP_Queue {
             'universal_prompt' => $feed->universal_prompt ?? ''
         ];
         
+        error_log('RSP DEBUG: Feed settings: ' . json_encode($feed_settings));
+        error_log('RSP DEBUG: Enhancement enabled: ' . ($feed->enable_enhancement ? 'YES' : 'NO'));
+        error_log('RSP DEBUG: Translation enabled: ' . ($feed->enable_translation ? 'YES' : 'NO'));
+        
         if ($feed->enable_enhancement) {
+            error_log('RSP DEBUG: Queueing for smart content creation');
             // Use new smart content creation
             $data['feed_settings'] = $feed_settings;
             self::add_item($feed->id, 'create_smart_content', $data, 9);
         } elseif ($feed->enable_translation) {
+            error_log('RSP DEBUG: Queueing for translation');
             // Queue for translation
             $languages = json_decode($feed->target_languages, true) ?: [];
             foreach ($languages as $lang) {
@@ -147,6 +182,7 @@ class RSP_Queue {
                 self::add_item($feed->id, 'translate_content', $data, 8);
             }
         } else {
+            error_log('RSP DEBUG: Queueing for direct post creation');
             // Queue for direct post creation
             self::add_item($feed->id, 'create_post', $data, 7);
         }
@@ -158,19 +194,26 @@ class RSP_Queue {
      * Create smart content using new title-based analysis
      */
     private static function create_smart_content($feed, $data) {
+        error_log('RSP DEBUG: create_smart_content called for feed ' . $feed->id);
+        error_log('RSP DEBUG: Data title: ' . $data['title']);
+        error_log('RSP DEBUG: Data excerpt: ' . ($data['excerpt'] ?? 'NO EXCERPT'));
+        
         $openai = new RSP_OpenAI();
         
         // Check if rate limited
         if ($openai->is_rate_limited()) {
-            error_log('GPT-5 rate limited, will retry later');
+            error_log('RSP DEBUG: GPT-5 rate limited, will retry later');
             return false;
         }
         
         if (!$openai->is_configured()) {
+            error_log('RSP DEBUG: OpenAI not configured, skipping to post creation');
             // Skip enhancement, create post directly
             self::add_item($feed->id, 'create_post', $data, 7);
             return true;
         }
+        
+        error_log('RSP DEBUG: Calling GPT-5 for content creation');
         
         // Use new smart content creation from title
         $enhanced = $openai->create_content_from_title(
@@ -180,20 +223,28 @@ class RSP_Queue {
         );
         
         if ($enhanced) {
+            error_log('RSP DEBUG: GPT-5 enhancement successful');
+            error_log('RSP DEBUG: Enhanced title: ' . $enhanced['title']);
+            error_log('RSP DEBUG: Enhanced content length: ' . strlen($enhanced['content']));
+            
             $data['title'] = $enhanced['title'];
             $data['content'] = $enhanced['content'];
             $data['enhanced'] = true;
             $data['smart_generated'] = true; // Flag to indicate this was smart-generated
+        } else {
+            error_log('RSP DEBUG: GPT-5 enhancement failed, using original content');
         }
         
         // Check if translation is needed
         if ($feed->enable_translation) {
+            error_log('RSP DEBUG: Queueing for translation');
             $languages = json_decode($feed->target_languages, true) ?: [];
             foreach ($languages as $lang) {
                 $data['target_language'] = $lang;
                 self::add_item($feed->id, 'translate_content', $data, 8);
             }
         } else {
+            error_log('RSP DEBUG: Queueing for post creation');
             // Queue for post creation
             self::add_item($feed->id, 'create_post', $data, 7);
         }
@@ -205,6 +256,8 @@ class RSP_Queue {
      * Enhance content (legacy method for backwards compatibility)
      */
     private static function enhance_content($feed, $data) {
+        error_log('RSP DEBUG: enhance_content called (legacy method)');
+        
         $openai = new RSP_OpenAI();
         
         // Check if rate limited
@@ -254,6 +307,8 @@ class RSP_Queue {
      * Translate content
      */
     private static function translate_content($feed, $data) {
+        error_log('RSP DEBUG: translate_content called');
+        
         $openai = new RSP_OpenAI();
         
         // Check if rate limited
@@ -288,6 +343,11 @@ class RSP_Queue {
      * Create WordPress post
      */
     private static function create_post($feed, $data) {
+        error_log('RSP DEBUG: create_post called');
+        error_log('RSP DEBUG: Post title: ' . $data['title']);
+        error_log('RSP DEBUG: Post content length: ' . strlen($data['content']));
+        error_log('RSP DEBUG: Content preview: ' . substr(strip_tags($data['content']), 0, 200) . '...');
+        
         // Prepare post data
         $post_data = [
             'post_title' => wp_strip_all_tags($data['title']),
@@ -298,12 +358,17 @@ class RSP_Queue {
             'post_date' => $data['date'] ?: current_time('mysql'),
         ];
         
+        error_log('RSP DEBUG: WordPress post data prepared');
+        
         // Insert post
         $post_id = wp_insert_post($post_data);
         
         if (is_wp_error($post_id)) {
+            error_log('RSP DEBUG: WordPress post creation failed: ' . $post_id->get_error_message());
             throw new Exception($post_id->get_error_message());
         }
+        
+        error_log('RSP DEBUG: WordPress post created successfully with ID: ' . $post_id);
         
         // Add meta data
         update_post_meta($post_id, '_rsp_feed_id', $feed->id);
@@ -335,6 +400,7 @@ class RSP_Queue {
         // Mark as processed
         RSP_Database::mark_item_processed($feed->id, $data['guid'], $post_id);
         
+        error_log('RSP DEBUG: Post creation completed successfully');
         return true;
     }
     
