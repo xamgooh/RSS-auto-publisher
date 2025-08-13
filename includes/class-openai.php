@@ -59,7 +59,136 @@ class RSP_OpenAI {
     }
     
     /**
-     * Enhance content using GPT-5
+     * Enhanced content creation using title analysis
+     */
+    public function create_content_from_title($title, $description, $feed_settings) {
+        if (!$this->is_configured()) {
+            return false;
+        }
+        
+        // Analyze the content
+        $analyzer = new RSP_Content_Analyzer();
+        $analysis = $analyzer->analyze_content($title, $description, $feed_settings);
+        
+        // Build enhanced prompt
+        $prompt = $this->build_smart_prompt($title, $analysis, $feed_settings);
+        
+        // Generate content
+        $input = [
+            [
+                'role' => 'system',
+                'content' => [
+                    ['type' => 'input_text', 'text' => 'You are an expert content writer specializing in creating engaging, SEO-optimized articles from news titles and topics.']
+                ]
+            ],
+            [
+                'role' => 'user', 
+                'content' => [
+                    ['type' => 'input_text', 'text' => $prompt]
+                ]
+            ]
+        ];
+        
+        $response = $this->call_api($input);
+        if (!$response) {
+            return false;
+        }
+        
+        return $this->parse_json_response($response);
+    }
+    
+    private function build_smart_prompt($title, $analysis, $settings) {
+        $domain = $analysis['domain'];
+        $angle = $analysis['suggested_angle'];
+        $keywords = implode(', ', $analysis['seo_keywords']);
+        $audience = $settings['target_audience'] ?? '';
+        $length = $settings['content_length'] ?? '900-1500';
+        $custom_prompt = $settings['universal_prompt'] ?? '';
+        
+        // Domain-specific instructions
+        $domain_instructions = $this->get_domain_instructions($domain, $analysis['gambling_category']);
+        $angle_instructions = $this->get_angle_instructions($angle);
+        
+        $prompt = "
+        Create an original, comprehensive article based on this title: '{$title}'
+        
+        CONTENT SPECIFICATIONS:
+        - Content Type: {$domain}" . ($analysis['gambling_category'] ? " ({$analysis['gambling_category']})" : "") . "
+        - Writing Style: {$angle_instructions}
+        - Target Length: {$length} words
+        - Target Audience: " . ($audience ?: 'General readers interested in ' . $domain) . "
+        
+        SEO REQUIREMENTS:
+        - Focus Keywords: {$keywords} (use naturally throughout)
+        - Include engaging subheadings (H2, H3 tags)
+        - Write for featured snippets (include FAQ section)
+        - Use bullet points and numbered lists where appropriate
+        - Include specific numbers, statistics, and data points
+        - Create scannable content with clear structure
+        
+        {$domain_instructions}
+        
+        CONTENT STRUCTURE:
+        1. Engaging introduction (hook + preview of what readers will learn)
+        2. Main content sections with clear, benefit-focused subheadings
+        3. Practical tips or actionable advice section
+        4. FAQ section (3-5 common questions with concise answers)
+        5. Conclusion with key takeaways and call-to-action
+        
+        " . ($custom_prompt ? "ADDITIONAL INSTRUCTIONS: {$custom_prompt}" : "") . "
+        
+        Return as JSON with 'title' and 'content' fields.
+        Create a new, SEO-friendly title that's more engaging and specific than the original.
+        Make the content genuinely helpful and valuable to readers.
+        ";
+        
+        return $prompt;
+    }
+    
+    private function get_domain_instructions($domain, $gambling_category = null) {
+        $instructions = [
+            'gambling' => 'GAMBLING FOCUS: Include responsible gambling disclaimers. Focus on strategy, education, and informed decision-making. Mention odds, bankroll management, and legal considerations where relevant. Emphasize risk management and never guarantee wins.',
+            'sports' => 'SPORTS FOCUS: Include player stats, team analysis, and strategic insights. Use current season data and provide fantasy-relevant information. Include injury updates and lineup considerations.',
+            'technology' => 'TECH FOCUS: Explain technical concepts clearly, include practical applications, and mention latest trends or updates. Provide step-by-step guides where appropriate.',
+            'business' => 'BUSINESS FOCUS: Include actionable business advice, market insights, and practical implementation tips. Use real-world examples and case studies.',
+            'health' => 'HEALTH FOCUS: Provide evidence-based information, include safety considerations, and mention when to consult professionals. Avoid medical diagnosis or treatment claims.',
+            'lifestyle' => 'LIFESTYLE FOCUS: Provide practical lifestyle advice, include personal experiences and relatable examples. Focus on actionable tips readers can implement.',
+            'news' => 'NEWS FOCUS: Provide balanced analysis, include multiple perspectives, and explain the broader implications. Use factual, unbiased language.'
+        ];
+        
+        $base_instruction = $instructions[$domain] ?? 'Focus on providing valuable, accurate information with practical applications.';
+        
+        // Add gambling subcategory specific instructions
+        if ($domain === 'gambling' && $gambling_category) {
+            $gambling_specifics = [
+                'sports_betting' => ' Focus on betting strategies, odds analysis, and bankroll management for sports wagering.',
+                'casino' => ' Focus on game strategies, RTP analysis, and casino bonus optimization.',
+                'poker' => ' Focus on poker strategy, tournament tips, and skill development.',
+                'horse_racing' => ' Focus on handicapping, track analysis, and betting systems.',
+                'esports_betting' => ' Focus on esports knowledge, team analysis, and tournament betting strategies.'
+            ];
+            
+            $base_instruction .= $gambling_specifics[$gambling_category] ?? '';
+        }
+        
+        return $base_instruction;
+    }
+    
+    private function get_angle_instructions($angle) {
+        $instructions = [
+            'beginner_guide' => 'Write for newcomers. Explain basics clearly, define terminology, and provide step-by-step guidance. Assume no prior knowledge.',
+            'expert_analysis' => 'Write for experienced readers. Include advanced strategies, detailed analysis, and insider insights. Use industry terminology naturally.',
+            'practical_tips' => 'Focus on actionable advice. Provide specific tips, techniques, and real-world applications. Include implementation steps.',
+            'comparison' => 'Compare options objectively. Include pros/cons, feature comparisons, and clear recommendations based on different use cases.',
+            'prediction' => 'Analyze trends and provide forecasts. Use data to support predictions and explain reasoning behind projections.',
+            'contrarian_view' => 'Challenge conventional wisdom. Present alternative perspectives and explain why popular opinions might be wrong.'
+        ];
+        
+        return $instructions[$angle] ?? 'Provide valuable insights and practical information that helps readers make informed decisions.';
+    }
+    
+    /**
+     * Enhance content using GPT-5 (legacy method for backwards compatibility)
      */
     public function enhance_content($title, $content, $options = []) {
         if (!$this->is_configured()) {
