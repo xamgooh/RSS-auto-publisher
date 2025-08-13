@@ -37,10 +37,12 @@ class RSP_Feed_Processor {
                 continue;
             }
             
-            // Check word count
-            $word_count = str_word_count(strip_tags($item['content']));
-            if ($word_count < $feed->min_word_count) {
-                continue;
+            // Check word count (but skip if enhancement is enabled - we'll create content from title)
+            if (!$feed->enable_enhancement) {
+                $word_count = str_word_count(strip_tags($item['content']));
+                if ($word_count < $feed->min_word_count) {
+                    continue;
+                }
             }
             
             // Add to queue
