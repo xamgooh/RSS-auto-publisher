@@ -3,7 +3,7 @@
  * Plugin Name: RSS Auto Publisher
  * Plugin URI: https://yoursite.com/rss-auto-publisher
  * Description: Import RSS feeds and enhance content with OpenAI GPT-5
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Max 
  * License: GPL v2 or later
  * Text Domain: rss-auto-publisher
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('RSP_VERSION', '1.0.0');
+define('RSP_VERSION', '1.1.0');
 define('RSP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('RSP_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('RSP_PLUGIN_FILE', __FILE__);
@@ -54,6 +54,7 @@ class RSS_Auto_Publisher {
     private function load_dependencies() {
         // Core classes
         require_once RSP_PLUGIN_DIR . 'includes/class-database.php';
+        require_once RSP_PLUGIN_DIR . 'includes/class-content-analyzer.php';
         require_once RSP_PLUGIN_DIR . 'includes/class-openai.php';
         require_once RSP_PLUGIN_DIR . 'includes/class-feed-processor.php';
         require_once RSP_PLUGIN_DIR . 'includes/class-queue.php';
