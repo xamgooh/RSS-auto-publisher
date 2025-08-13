@@ -203,6 +203,89 @@ class RSP_Admin {
                         </tr>
                         
                         <tr>
+                            <th colspan="2">
+                                <h3 style="margin: 20px 0 10px 0; cursor: pointer;" onclick="toggleAdvancedOptions()">
+                                    ⚙️ <?php _e('Advanced Content Options', 'rss-auto-publisher'); ?>
+                                    <small style="font-weight: normal; color: #666;"><?php _e('(Click to expand)', 'rss-auto-publisher'); ?></small>
+                                </h3>
+                            </td>
+                        </tr>
+                        
+                        <tbody id="advanced-options" style="display: none;">
+                            <tr>
+                                <th><label for="content_domain"><?php _e('Content Type', 'rss-auto-publisher'); ?></label></th>
+                                <td>
+                                    <select name="content_domain" id="content_domain">
+                                        <option value="auto"><?php _e('Auto-detect', 'rss-auto-publisher'); ?></option>
+                                        <option value="sports"><?php _e('Sports & Fantasy', 'rss-auto-publisher'); ?></option>
+                                        <option value="gambling"><?php _e('Betting & Casino', 'rss-auto-publisher'); ?></option>
+                                        <option value="technology"><?php _e('Technology', 'rss-auto-publisher'); ?></option>
+                                        <option value="business"><?php _e('Business & Finance', 'rss-auto-publisher'); ?></option>
+                                        <option value="health"><?php _e('Health & Wellness', 'rss-auto-publisher'); ?></option>
+                                        <option value="lifestyle"><?php _e('Lifestyle', 'rss-auto-publisher'); ?></option>
+                                        <option value="news"><?php _e('News & Current Events', 'rss-auto-publisher'); ?></option>
+                                    </select>
+                                    <p class="description"><?php _e('Choose content type for better AI optimization', 'rss-auto-publisher'); ?></p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th><label for="content_angle"><?php _e('Content Style', 'rss-auto-publisher'); ?></label></th>
+                                <td>
+                                    <select name="content_angle" id="content_angle">
+                                        <option value="auto"><?php _e('Smart selection', 'rss-auto-publisher'); ?></option>
+                                        <option value="beginner_guide"><?php _e('Beginner-friendly guides', 'rss-auto-publisher'); ?></option>
+                                        <option value="expert_analysis"><?php _e('Expert analysis', 'rss-auto-publisher'); ?></option>
+                                        <option value="practical_tips"><?php _e('Practical tips & how-to', 'rss-auto-publisher'); ?></option>
+                                        <option value="comparison"><?php _e('Comparisons & reviews', 'rss-auto-publisher'); ?></option>
+                                        <option value="prediction"><?php _e('Predictions & forecasts', 'rss-auto-publisher'); ?></option>
+                                    </select>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th><label for="seo_focus"><?php _e('SEO Goal', 'rss-auto-publisher'); ?></label></th>
+                                <td>
+                                    <select name="seo_focus" id="seo_focus">
+                                        <option value="informational"><?php _e('Educational content (How-to, Guides)', 'rss-auto-publisher'); ?></option>
+                                        <option value="commercial"><?php _e('Review content (Best of, Comparisons)', 'rss-auto-publisher'); ?></option>
+                                        <option value="transactional"><?php _e('Action-focused (Sign-up, Buy)', 'rss-auto-publisher'); ?></option>
+                                    </select>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th><label for="target_keywords"><?php _e('Focus Keywords', 'rss-auto-publisher'); ?></label></th>
+                                <td>
+                                    <input type="text" name="target_keywords" id="target_keywords" 
+                                           placeholder="e.g., sports betting, casino games, fantasy football"
+                                           class="regular-text">
+                                    <p class="description"><?php _e('Keywords to target for SEO (comma-separated)', 'rss-auto-publisher'); ?></p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th><label for="content_length"><?php _e('Article Length', 'rss-auto-publisher'); ?></label></th>
+                                <td>
+                                    <select name="content_length" id="content_length">
+                                        <option value="600-900"><?php _e('Short (600-900 words)', 'rss-auto-publisher'); ?></option>
+                                        <option value="900-1500" selected><?php _e('Medium (900-1500 words)', 'rss-auto-publisher'); ?></option>
+                                        <option value="1500-2500"><?php _e('Long (1500-2500 words)', 'rss-auto-publisher'); ?></option>
+                                    </select>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th><label for="target_audience"><?php _e('Target Audience', 'rss-auto-publisher'); ?></label></th>
+                                <td>
+                                    <input type="text" name="target_audience" id="target_audience" 
+                                           placeholder="e.g., beginner bettors, experienced traders, casual fans"
+                                           class="regular-text">
+                                </td>
+                            </tr>
+                        </tbody>
+                        
+                        <tr>
                             <th><label for="min_word_count"><?php _e('Min Word Count', 'rss-auto-publisher'); ?></label></th>
                             <td>
                                 <input type="number" name="min_word_count" id="min_word_count" value="300" min="50" max="5000">
@@ -248,6 +331,14 @@ class RSP_Admin {
                 </form>
             </div>
             
+            <script>
+            function toggleAdvancedOptions() {
+                const options = document.getElementById('advanced-options');
+                const isVisible = options.style.display !== 'none';
+                options.style.display = isVisible ? 'none' : 'table-row-group';
+            }
+            </script>
+            
             <?php if (!empty($feeds)): ?>
             <div class="rsp-card">
                 <h2><?php _e('Existing Feeds', 'rss-auto-publisher'); ?></h2>
@@ -281,6 +372,11 @@ class RSP_Admin {
                             <div class="feed-meta-item">
                                 <span class="meta-label"><?php _e('Category:', 'rss-auto-publisher'); ?></span>
                                 <span class="meta-value"><?php echo $category ? esc_html($category->name) : '-'; ?></span>
+                            </div>
+                            
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Content Type:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value"><?php echo esc_html(ucfirst($feed->content_domain ?? 'auto')); ?></span>
                             </div>
                             
                             <div class="feed-meta-item">
@@ -640,7 +736,14 @@ class RSP_Admin {
             'target_languages' => isset($_POST['target_languages']) ? $_POST['target_languages'] : [],
             'enhancement_prompt' => sanitize_textarea_field($_POST['enhancement_prompt']),
             'update_frequency' => sanitize_text_field($_POST['update_frequency']),
-            'items_per_import' => intval($_POST['items_per_import'])
+            'items_per_import' => intval($_POST['items_per_import']),
+            'content_domain' => sanitize_text_field($_POST['content_domain'] ?? 'auto'),
+            'content_angle' => sanitize_text_field($_POST['content_angle'] ?? 'auto'),
+            'seo_focus' => sanitize_text_field($_POST['seo_focus'] ?? 'informational'),
+            'target_keywords' => sanitize_text_field($_POST['target_keywords'] ?? ''),
+            'content_length' => sanitize_text_field($_POST['content_length'] ?? '900-1500'),
+            'target_audience' => sanitize_text_field($_POST['target_audience'] ?? ''),
+            'universal_prompt' => sanitize_textarea_field($_POST['universal_prompt'] ?? '')
         ];
         
         $feed_id = RSP_Database::add_feed($data);
@@ -681,7 +784,14 @@ class RSP_Admin {
             'target_languages' => isset($_POST['target_languages']) ? $_POST['target_languages'] : [],
             'enhancement_prompt' => sanitize_textarea_field($_POST['enhancement_prompt']),
             'update_frequency' => sanitize_text_field($_POST['update_frequency']),
-            'items_per_import' => intval($_POST['items_per_import'])
+            'items_per_import' => intval($_POST['items_per_import']),
+            'content_domain' => sanitize_text_field($_POST['content_domain'] ?? 'auto'),
+            'content_angle' => sanitize_text_field($_POST['content_angle'] ?? 'auto'),
+            'seo_focus' => sanitize_text_field($_POST['seo_focus'] ?? 'informational'),
+            'target_keywords' => sanitize_text_field($_POST['target_keywords'] ?? ''),
+            'content_length' => sanitize_text_field($_POST['content_length'] ?? '900-1500'),
+            'target_audience' => sanitize_text_field($_POST['target_audience'] ?? ''),
+            'universal_prompt' => sanitize_textarea_field($_POST['universal_prompt'] ?? '')
         ];
         
         if (RSP_Database::update_feed($feed_id, $data)) {
