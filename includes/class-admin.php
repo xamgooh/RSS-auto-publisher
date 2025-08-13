@@ -1,6 +1,7 @@
 <?php
 /**
  * Admin Interface for RSS Auto Publisher
+ * Version 1.3.0 - Production ready with Clear Queue functionality
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -21,6 +22,7 @@ class RSP_Admin {
         add_action('wp_ajax_rsp_process_feed', [$this, 'ajax_process_feed']);
         add_action('wp_ajax_rsp_process_queue_now', [$this, 'ajax_process_queue_now']);
         add_action('wp_ajax_rsp_get_feed', [$this, 'ajax_get_feed']);
+        add_action('wp_ajax_rsp_clear_queue', [$this, 'ajax_clear_queue']);
         
         // Form handlers
         add_action('admin_post_rsp_add_feed', [$this, 'handle_add_feed']);
@@ -615,13 +617,107 @@ class RSP_Admin {
                     </div>
                 </div>
                 
-                <p>
+                <p style="margin-top: 20px;">
                     <button class="button button-primary" id="process-queue-now">
                         <?php _e('Process Queue Now', 'rss-auto-publisher'); ?>
                     </button>
+                    
+                    <?php if ($stats->pending > 0 || $stats->failed > 0): ?>
+                    <button class="button" id="clear-pending-queue" style="margin-left: 10px;">
+                        <?php _e('Clear Pending Items', 'rss-auto-publisher'); ?>
+                    </button>
+                    <?php endif; ?>
+                    
+                    <?php if ($stats->total > 0): ?>
+                    <button class="button button-link-delete" id="clear-all-queue" style="margin-left: 10px;">
+                        <?php _e('Clear All Items', 'rss-auto-publisher'); ?>
+                    </button>
+                    <?php endif; ?>
                 </p>
+                
+                <?php if ($stats->failed > 0): ?>
+                <div class="notice notice-warning" style="margin-top: 20px;">
+                    <p><?php printf(__('There are %d failed items in the queue. These may need manual review.', 'rss-auto-publisher'), $stats->failed); ?></p>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            // Process queue now
+            $('#process-queue-now').on('click', function() {
+                var $btn = $(this);
+                $btn.prop('disabled', true).text('Processing...');
+                
+                $.post(ajaxurl, {
+                    action: 'rsp_process_queue_now',
+                    nonce: '<?php echo wp_create_nonce('rsp-ajax'); ?>'
+                })
+                .done(function(response) {
+                    alert('Queue processed');
+                    location.reload();
+                })
+                .always(function() {
+                    $btn.prop('disabled', false).text('Process Queue Now');
+                });
+            });
+            
+            // Clear pending queue
+            $('#clear-pending-queue').on('click', function() {
+                if (!confirm('Are you sure you want to clear all pending items from the queue?')) {
+                    return;
+                }
+                
+                var $btn = $(this);
+                $btn.prop('disabled', true).text('Clearing...');
+                
+                $.post(ajaxurl, {
+                    action: 'rsp_clear_queue',
+                    status: 'pending',
+                    nonce: '<?php echo wp_create_nonce('rsp-ajax'); ?>'
+                })
+                .done(function(response) {
+                    if (response.success) {
+                        alert(response.data.message);
+                        location.reload();
+                    } else {
+                        alert('Error: ' + response.data);
+                    }
+                })
+                .always(function() {
+                    $btn.prop('disabled', false).text('Clear Pending Items');
+                });
+            });
+            
+            // Clear all queue
+            $('#clear-all-queue').on('click', function() {
+                if (!confirm('WARNING: This will clear ALL items from the queue including processing and failed items. Are you sure?')) {
+                    return;
+                }
+                
+                var $btn = $(this);
+                $btn.prop('disabled', true).text('Clearing...');
+                
+                $.post(ajaxurl, {
+                    action: 'rsp_clear_queue',
+                    status: 'all',
+                    nonce: '<?php echo wp_create_nonce('rsp-ajax'); ?>'
+                })
+                .done(function(response) {
+                    if (response.success) {
+                        alert(response.data.message);
+                        location.reload();
+                    } else {
+                        alert('Error: ' + response.data);
+                    }
+                })
+                .always(function() {
+                    $btn.prop('disabled', false).text('Clear All Items');
+                });
+            });
+        });
+        </script>
         <?php
     }
     
@@ -722,6 +818,31 @@ class RSP_Admin {
         
         RSP_Queue::process_queue();
         wp_send_json_success();
+    }
+    
+    /**
+     * AJAX handler to clear queue
+     */
+    public function ajax_clear_queue() {
+        check_ajax_referer('rsp-ajax', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+        
+        $status = isset($_POST['status']) ? sanitize_text_field($_POST['status']) : 'pending';
+        
+        $cleared = RSP_Queue::clear_queue($status);
+        
+        if ($cleared !== false) {
+            $message = $status === 'all' ? 
+                'All queue items cleared' : 
+                sprintf('%d %s items cleared', $cleared, $status);
+            
+            wp_send_json_success(['message' => $message]);
+        }
+        
+        wp_send_json_error('Failed to clear queue');
     }
     
     /**
