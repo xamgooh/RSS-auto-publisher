@@ -10,7 +10,7 @@ class RSP_Database {
     /**
      * Database version
      */
-    const DB_VERSION = '1.0.0';
+    const DB_VERSION = '1.1.0';
     
     /**
      * Initialize database
@@ -30,7 +30,7 @@ class RSP_Database {
         
         $charset_collate = $wpdb->get_charset_collate();
         
-        // Feeds table
+        // Feeds table with new columns
         $feeds_table = $wpdb->prefix . 'rsp_feeds';
         $sql_feeds = "CREATE TABLE $feeds_table (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -49,6 +49,13 @@ class RSP_Database {
             is_active tinyint(1) DEFAULT 1,
             last_checked datetime DEFAULT NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            content_domain varchar(50) DEFAULT 'auto',
+            content_angle varchar(50) DEFAULT 'auto',
+            seo_focus varchar(50) DEFAULT 'informational',
+            target_keywords text,
+            content_length varchar(20) DEFAULT '900-1500',
+            target_audience varchar(255) DEFAULT '',
+            universal_prompt text,
             PRIMARY KEY (id),
             KEY is_active (is_active),
             KEY update_frequency (update_frequency)
@@ -106,6 +113,24 @@ class RSP_Database {
         dbDelta($sql_queue);
         dbDelta($sql_processed);
         dbDelta($sql_api_usage);
+        
+        // Add new columns to existing table if upgrading
+        $existing_columns = $wpdb->get_col("DESC $feeds_table", 0);
+        $new_columns = [
+            'content_domain' => "ALTER TABLE $feeds_table ADD COLUMN content_domain varchar(50) DEFAULT 'auto'",
+            'content_angle' => "ALTER TABLE $feeds_table ADD COLUMN content_angle varchar(50) DEFAULT 'auto'",
+            'seo_focus' => "ALTER TABLE $feeds_table ADD COLUMN seo_focus varchar(50) DEFAULT 'informational'",
+            'target_keywords' => "ALTER TABLE $feeds_table ADD COLUMN target_keywords text",
+            'content_length' => "ALTER TABLE $feeds_table ADD COLUMN content_length varchar(20) DEFAULT '900-1500'",
+            'target_audience' => "ALTER TABLE $feeds_table ADD COLUMN target_audience varchar(255) DEFAULT ''",
+            'universal_prompt' => "ALTER TABLE $feeds_table ADD COLUMN universal_prompt text"
+        ];
+        
+        foreach ($new_columns as $column => $sql) {
+            if (!in_array($column, $existing_columns)) {
+                $wpdb->query($sql);
+            }
+        }
         
         update_option('rsp_db_version', self::DB_VERSION);
     }
@@ -177,7 +202,14 @@ class RSP_Database {
             'update_frequency' => $data['update_frequency'] ?? 'hourly',
             'items_per_import' => $data['items_per_import'] ?? 5,
             'is_active' => 1,
-            'created_at' => current_time('mysql')
+            'created_at' => current_time('mysql'),
+            'content_domain' => $data['content_domain'] ?? 'auto',
+            'content_angle' => $data['content_angle'] ?? 'auto',
+            'seo_focus' => $data['seo_focus'] ?? 'informational',
+            'target_keywords' => $data['target_keywords'] ?? '',
+            'content_length' => $data['content_length'] ?? '900-1500',
+            'target_audience' => $data['target_audience'] ?? '',
+            'universal_prompt' => $data['universal_prompt'] ?? ''
         ];
         
         $result = $wpdb->insert($table, $insert_data);
