@@ -1,6 +1,7 @@
 <?php
 /**
  * Database handler for RSS Auto Publisher
+ * Version 2.0.0 - GPT-5 Optimized with enhanced tracking
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -10,7 +11,7 @@ class RSP_Database {
     /**
      * Database version
      */
-    const DB_VERSION = '1.1.0';
+    const DB_VERSION = '2.0.0';
     
     /**
      * Initialize database
@@ -23,14 +24,14 @@ class RSP_Database {
     }
     
     /**
-     * Create database tables
+     * Create database tables with GPT-5 enhancements
      */
     public static function create_tables() {
         global $wpdb;
         
         $charset_collate = $wpdb->get_charset_collate();
         
-        // Feeds table with new columns
+        // Enhanced feeds table with GPT-5 settings
         $feeds_table = $wpdb->prefix . 'rsp_feeds';
         $sql_feeds = "CREATE TABLE $feeds_table (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -45,7 +46,7 @@ class RSP_Database {
             target_languages text,
             enhancement_prompt text,
             update_frequency varchar(20) DEFAULT 'hourly',
-            items_per_import int DEFAULT 5,
+            items_per_import int DEFAULT 3,
             is_active tinyint(1) DEFAULT 1,
             last_checked datetime DEFAULT NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
@@ -53,15 +54,26 @@ class RSP_Database {
             content_angle varchar(50) DEFAULT 'auto',
             seo_focus varchar(50) DEFAULT 'informational',
             target_keywords text,
-            content_length varchar(20) DEFAULT '900-1500',
+            content_length varchar(20) DEFAULT '1200-1800',
             target_audience varchar(255) DEFAULT '',
             universal_prompt text,
+            gpt5_verbosity varchar(20) DEFAULT 'high',
+            gpt5_reasoning varchar(20) DEFAULT 'high',
+            min_article_words int DEFAULT 1200,
+            max_retries int DEFAULT 3,
+            use_responses_api tinyint(1) DEFAULT 1,
+            total_articles_generated int DEFAULT 0,
+            total_words_generated bigint DEFAULT 0,
+            avg_generation_time float DEFAULT 0,
+            last_error text,
+            last_error_date datetime DEFAULT NULL,
             PRIMARY KEY (id),
             KEY is_active (is_active),
-            KEY update_frequency (update_frequency)
+            KEY update_frequency (update_frequency),
+            KEY last_checked (last_checked)
         ) $charset_collate;";
         
-        // Queue table
+        // Enhanced queue table with better error tracking
         $queue_table = $wpdb->prefix . 'rsp_queue';
         $sql_queue = "CREATE TABLE $queue_table (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -73,14 +85,20 @@ class RSP_Database {
             attempts int DEFAULT 0,
             max_attempts int DEFAULT 3,
             error_message text,
+            error_code varchar(50),
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             processed_at datetime DEFAULT NULL,
+            completed_at datetime DEFAULT NULL,
+            processing_time float DEFAULT 0,
+            retry_after datetime DEFAULT NULL,
             PRIMARY KEY (id),
             KEY status_priority (status, priority),
-            KEY feed_id (feed_id)
+            KEY feed_id (feed_id),
+            KEY created_at (created_at),
+            KEY retry_after (retry_after)
         ) $charset_collate;";
         
-        // Processed items table
+        // Enhanced processed items table with more metadata
         $processed_table = $wpdb->prefix . 'rsp_processed';
         $sql_processed = "CREATE TABLE $processed_table (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -88,24 +106,99 @@ class RSP_Database {
             item_guid varchar(255) NOT NULL,
             post_id bigint(20) DEFAULT NULL,
             processed_at datetime DEFAULT CURRENT_TIMESTAMP,
+            processing_time float DEFAULT 0,
+            word_count int DEFAULT 0,
+            gpt5_tokens_used int DEFAULT 0,
+            gpt5_cost decimal(10,6) DEFAULT 0,
+            language varchar(10) DEFAULT 'en',
+            enhanced tinyint(1) DEFAULT 0,
+            translated tinyint(1) DEFAULT 0,
+            verbosity_used varchar(20),
+            reasoning_used varchar(20),
+            api_type varchar(50),
             PRIMARY KEY (id),
             UNIQUE KEY feed_item (feed_id, item_guid),
-            KEY post_id (post_id)
+            KEY post_id (post_id),
+            KEY processed_at (processed_at),
+            KEY feed_stats (feed_id, word_count)
         ) $charset_collate;";
         
-        // API usage tracking
+        // Enhanced API usage tracking with GPT-5 specific fields
         $api_usage_table = $wpdb->prefix . 'rsp_api_usage';
         $sql_api_usage = "CREATE TABLE $api_usage_table (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             api_service varchar(50) NOT NULL,
             endpoint varchar(100),
+            model varchar(50),
             tokens_used int DEFAULT 0,
+            input_tokens int DEFAULT 0,
+            output_tokens int DEFAULT 0,
+            reasoning_tokens int DEFAULT 0,
             cost_estimate decimal(10,6) DEFAULT 0,
             success tinyint(1) DEFAULT 1,
+            response_time float DEFAULT 0,
+            verbosity varchar(20),
+            reasoning_effort varchar(20),
+            error_message text,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            feed_id bigint(20) DEFAULT NULL,
+            queue_id bigint(20) DEFAULT NULL,
             PRIMARY KEY (id),
             KEY api_service (api_service),
-            KEY created_at (created_at)
+            KEY created_at (created_at),
+            KEY feed_id (feed_id),
+            KEY model (model)
+        ) $charset_collate;";
+        
+        // New table for content analysis and optimization tracking
+        $content_analysis_table = $wpdb->prefix . 'rsp_content_analysis';
+        $sql_content_analysis = "CREATE TABLE $content_analysis_table (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            post_id bigint(20) NOT NULL,
+            feed_id bigint(20) NOT NULL,
+            domain varchar(50),
+            angle varchar(50),
+            seo_focus varchar(50),
+            keywords_targeted text,
+            keywords_density text,
+            readability_score float,
+            seo_score float,
+            engagement_score float,
+            word_count int,
+            sentence_count int,
+            paragraph_count int,
+            heading_count int,
+            image_count int,
+            link_count int,
+            analyzed_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY post_id (post_id),
+            KEY feed_id (feed_id),
+            KEY domain (domain),
+            KEY analyzed_at (analyzed_at)
+        ) $charset_collate;";
+        
+        // New table for GPT-5 performance metrics
+        $performance_table = $wpdb->prefix . 'rsp_performance_metrics';
+        $sql_performance = "CREATE TABLE $performance_table (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            date date NOT NULL,
+            feed_id bigint(20) DEFAULT NULL,
+            total_requests int DEFAULT 0,
+            successful_requests int DEFAULT 0,
+            failed_requests int DEFAULT 0,
+            total_tokens bigint DEFAULT 0,
+            total_cost decimal(10,4) DEFAULT 0,
+            avg_response_time float DEFAULT 0,
+            avg_word_count float DEFAULT 0,
+            min_word_count int DEFAULT 0,
+            max_word_count int DEFAULT 0,
+            regeneration_count int DEFAULT 0,
+            rate_limit_hits int DEFAULT 0,
+            PRIMARY KEY (id),
+            UNIQUE KEY date_feed (date, feed_id),
+            KEY date (date),
+            KEY feed_id (feed_id)
         ) $charset_collate;";
         
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
@@ -113,17 +206,39 @@ class RSP_Database {
         dbDelta($sql_queue);
         dbDelta($sql_processed);
         dbDelta($sql_api_usage);
+        dbDelta($sql_content_analysis);
+        dbDelta($sql_performance);
         
-        // Add new columns to existing table if upgrading
+        // Add new columns to existing tables if upgrading
+        self::upgrade_existing_tables();
+        
+        // Set database version
+        update_option('rsp_db_version', self::DB_VERSION);
+        
+        // Initialize default options
+        self::init_default_options();
+    }
+    
+    /**
+     * Upgrade existing tables with new columns
+     */
+    private static function upgrade_existing_tables() {
+        global $wpdb;
+        
+        $feeds_table = $wpdb->prefix . 'rsp_feeds';
         $existing_columns = $wpdb->get_col("DESC $feeds_table", 0);
+        
         $new_columns = [
-            'content_domain' => "ALTER TABLE $feeds_table ADD COLUMN content_domain varchar(50) DEFAULT 'auto'",
-            'content_angle' => "ALTER TABLE $feeds_table ADD COLUMN content_angle varchar(50) DEFAULT 'auto'",
-            'seo_focus' => "ALTER TABLE $feeds_table ADD COLUMN seo_focus varchar(50) DEFAULT 'informational'",
-            'target_keywords' => "ALTER TABLE $feeds_table ADD COLUMN target_keywords text",
-            'content_length' => "ALTER TABLE $feeds_table ADD COLUMN content_length varchar(20) DEFAULT '900-1500'",
-            'target_audience' => "ALTER TABLE $feeds_table ADD COLUMN target_audience varchar(255) DEFAULT ''",
-            'universal_prompt' => "ALTER TABLE $feeds_table ADD COLUMN universal_prompt text"
+            'gpt5_verbosity' => "ALTER TABLE $feeds_table ADD COLUMN gpt5_verbosity varchar(20) DEFAULT 'high'",
+            'gpt5_reasoning' => "ALTER TABLE $feeds_table ADD COLUMN gpt5_reasoning varchar(20) DEFAULT 'high'",
+            'min_article_words' => "ALTER TABLE $feeds_table ADD COLUMN min_article_words int DEFAULT 1200",
+            'max_retries' => "ALTER TABLE $feeds_table ADD COLUMN max_retries int DEFAULT 3",
+            'use_responses_api' => "ALTER TABLE $feeds_table ADD COLUMN use_responses_api tinyint(1) DEFAULT 1",
+            'total_articles_generated' => "ALTER TABLE $feeds_table ADD COLUMN total_articles_generated int DEFAULT 0",
+            'total_words_generated' => "ALTER TABLE $feeds_table ADD COLUMN total_words_generated bigint DEFAULT 0",
+            'avg_generation_time' => "ALTER TABLE $feeds_table ADD COLUMN avg_generation_time float DEFAULT 0",
+            'last_error' => "ALTER TABLE $feeds_table ADD COLUMN last_error text",
+            'last_error_date' => "ALTER TABLE $feeds_table ADD COLUMN last_error_date datetime DEFAULT NULL"
         ];
         
         foreach ($new_columns as $column => $sql) {
@@ -132,11 +247,45 @@ class RSP_Database {
             }
         }
         
-        update_option('rsp_db_version', self::DB_VERSION);
+        // Add indexes if they don't exist
+        $indexes = [
+            'last_checked' => "ALTER TABLE $feeds_table ADD INDEX last_checked (last_checked)",
+        ];
+        
+        foreach ($indexes as $index_name => $sql) {
+            $existing_index = $wpdb->get_var("SHOW INDEX FROM $feeds_table WHERE Key_name = '$index_name'");
+            if (!$existing_index) {
+                $wpdb->query($sql);
+            }
+        }
     }
     
     /**
-     * Get all feeds
+     * Initialize default options
+     */
+    private static function init_default_options() {
+        $defaults = [
+            'rsp_gpt5_verbosity' => 'high',
+            'rsp_gpt5_reasoning_effort' => 'high',
+            'rsp_use_gpt5_responses_api' => 'yes',
+            'rsp_min_article_words' => 1200,
+            'rsp_gpt5_max_retries' => 3,
+            'rsp_default_content_length' => '1200-1800',
+            'rsp_enable_content_validation' => 1,
+            'rsp_enable_debug_logging' => 0,
+            'rsp_queue_batch_size' => 3,
+            'rsp_default_post_status' => 'draft'
+        ];
+        
+        foreach ($defaults as $key => $value) {
+            if (get_option($key) === false) {
+                add_option($key, $value);
+            }
+        }
+    }
+    
+    /**
+     * Get all feeds with enhanced filtering
      */
     public static function get_feeds($args = []) {
         global $wpdb;
@@ -145,7 +294,10 @@ class RSP_Database {
             'is_active' => null,
             'orderby' => 'created_at',
             'order' => 'DESC',
-            'limit' => 0
+            'limit' => 0,
+            'offset' => 0,
+            'search' => '',
+            'category_id' => null
         ];
         
         $args = wp_parse_args($args, $defaults);
@@ -157,37 +309,69 @@ class RSP_Database {
             $query .= $wpdb->prepare(" AND is_active = %d", $args['is_active']);
         }
         
+        if (!empty($args['search'])) {
+            $query .= $wpdb->prepare(" AND (feed_name LIKE %s OR feed_url LIKE %s)", 
+                '%' . $wpdb->esc_like($args['search']) . '%',
+                '%' . $wpdb->esc_like($args['search']) . '%'
+            );
+        }
+        
+        if ($args['category_id'] !== null) {
+            $query .= $wpdb->prepare(" AND category_id = %d", $args['category_id']);
+        }
+        
         $query .= " ORDER BY {$args['orderby']} {$args['order']}";
         
         if ($args['limit'] > 0) {
             $query .= $wpdb->prepare(" LIMIT %d", $args['limit']);
+            if ($args['offset'] > 0) {
+                $query .= $wpdb->prepare(" OFFSET %d", $args['offset']);
+            }
         }
         
         return $wpdb->get_results($query);
     }
     
     /**
-     * Get single feed
+     * Get single feed with statistics
      */
     public static function get_feed($feed_id) {
         global $wpdb;
         
         $table = $wpdb->prefix . 'rsp_feeds';
-        return $wpdb->get_row($wpdb->prepare(
+        $feed = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM $table WHERE id = %d",
             $feed_id
         ));
+        
+        if ($feed) {
+            // Add statistics
+            $processed_table = $wpdb->prefix . 'rsp_processed';
+            $feed->stats = $wpdb->get_row($wpdb->prepare(
+                "SELECT 
+                    COUNT(*) as total_processed,
+                    AVG(word_count) as avg_word_count,
+                    SUM(word_count) as total_words,
+                    AVG(processing_time) as avg_processing_time,
+                    SUM(gpt5_cost) as total_cost
+                FROM $processed_table 
+                WHERE feed_id = %d",
+                $feed_id
+            ));
+        }
+        
+        return $feed;
     }
     
     /**
-     * Add feed
+     * Add feed with GPT-5 settings
      */
     public static function add_feed($data) {
         global $wpdb;
         
         $table = $wpdb->prefix . 'rsp_feeds';
         
-        // Prepare data
+        // Prepare data with GPT-5 settings
         $insert_data = [
             'feed_url' => $data['feed_url'],
             'feed_name' => $data['feed_name'] ?? '',
@@ -200,16 +384,21 @@ class RSP_Database {
             'target_languages' => is_array($data['target_languages']) ? json_encode($data['target_languages']) : '[]',
             'enhancement_prompt' => $data['enhancement_prompt'] ?? '',
             'update_frequency' => $data['update_frequency'] ?? 'hourly',
-            'items_per_import' => $data['items_per_import'] ?? 5,
+            'items_per_import' => $data['items_per_import'] ?? 3,
             'is_active' => 1,
             'created_at' => current_time('mysql'),
             'content_domain' => $data['content_domain'] ?? 'auto',
             'content_angle' => $data['content_angle'] ?? 'auto',
             'seo_focus' => $data['seo_focus'] ?? 'informational',
             'target_keywords' => $data['target_keywords'] ?? '',
-            'content_length' => $data['content_length'] ?? '900-1500',
+            'content_length' => $data['content_length'] ?? '1200-1800',
             'target_audience' => $data['target_audience'] ?? '',
-            'universal_prompt' => $data['universal_prompt'] ?? ''
+            'universal_prompt' => $data['universal_prompt'] ?? '',
+            'gpt5_verbosity' => $data['gpt5_verbosity'] ?? 'high',
+            'gpt5_reasoning' => $data['gpt5_reasoning'] ?? 'high',
+            'min_article_words' => $data['min_article_words'] ?? 1200,
+            'max_retries' => $data['max_retries'] ?? 3,
+            'use_responses_api' => $data['use_responses_api'] ?? 1
         ];
         
         $result = $wpdb->insert($table, $insert_data);
@@ -218,7 +407,7 @@ class RSP_Database {
     }
     
     /**
-     * Update feed
+     * Update feed with enhanced tracking
      */
     public static function update_feed($feed_id, $data) {
         global $wpdb;
@@ -234,16 +423,19 @@ class RSP_Database {
     }
     
     /**
-     * Delete feed
+     * Delete feed and all related data
      */
     public static function delete_feed($feed_id) {
         global $wpdb;
         
         $table = $wpdb->prefix . 'rsp_feeds';
         
-        // Also clean up related data
+        // Delete related data
         $wpdb->delete($wpdb->prefix . 'rsp_queue', ['feed_id' => $feed_id]);
         $wpdb->delete($wpdb->prefix . 'rsp_processed', ['feed_id' => $feed_id]);
+        $wpdb->delete($wpdb->prefix . 'rsp_api_usage', ['feed_id' => $feed_id]);
+        $wpdb->delete($wpdb->prefix . 'rsp_content_analysis', ['feed_id' => $feed_id]);
+        $wpdb->delete($wpdb->prefix . 'rsp_performance_metrics', ['feed_id' => $feed_id]);
         
         return $wpdb->delete($table, ['id' => $feed_id]);
     }
@@ -265,34 +457,252 @@ class RSP_Database {
     }
     
     /**
-     * Mark item as processed
+     * Mark item as processed with enhanced metadata
      */
-    public static function mark_item_processed($feed_id, $guid, $post_id = null) {
+    public static function mark_item_processed($feed_id, $guid, $post_id = null, $metadata = []) {
         global $wpdb;
         
         $table = $wpdb->prefix . 'rsp_processed';
-        return $wpdb->replace($table, [
+        
+        $data = [
             'feed_id' => $feed_id,
             'item_guid' => $guid,
             'post_id' => $post_id,
-            'processed_at' => current_time('mysql')
-        ]);
+            'processed_at' => current_time('mysql'),
+            'processing_time' => $metadata['processing_time'] ?? 0,
+            'word_count' => $metadata['word_count'] ?? 0,
+            'gpt5_tokens_used' => $metadata['tokens_used'] ?? 0,
+            'gpt5_cost' => $metadata['cost'] ?? 0,
+            'language' => $metadata['language'] ?? 'en',
+            'enhanced' => $metadata['enhanced'] ?? 0,
+            'translated' => $metadata['translated'] ?? 0,
+            'verbosity_used' => $metadata['verbosity'] ?? null,
+            'reasoning_used' => $metadata['reasoning'] ?? null,
+            'api_type' => $metadata['api_type'] ?? null
+        ];
+        
+        $result = $wpdb->replace($table, $data);
+        
+        // Update feed statistics
+        if ($result && $post_id) {
+            self::update_feed_statistics($feed_id);
+        }
+        
+        return $result;
     }
     
     /**
-     * Record API usage
+     * Update feed statistics
      */
-    public static function record_api_usage($service, $endpoint, $tokens, $cost = 0, $success = true) {
+    private static function update_feed_statistics($feed_id) {
+        global $wpdb;
+        
+        $processed_table = $wpdb->prefix . 'rsp_processed';
+        $feeds_table = $wpdb->prefix . 'rsp_feeds';
+        
+        // Calculate statistics
+        $stats = $wpdb->get_row($wpdb->prepare(
+            "SELECT 
+                COUNT(*) as total_articles,
+                SUM(word_count) as total_words,
+                AVG(processing_time) as avg_time
+            FROM $processed_table 
+            WHERE feed_id = %d AND post_id IS NOT NULL",
+            $feed_id
+        ));
+        
+        if ($stats) {
+            $wpdb->update($feeds_table, [
+                'total_articles_generated' => $stats->total_articles,
+                'total_words_generated' => $stats->total_words,
+                'avg_generation_time' => $stats->avg_time
+            ], ['id' => $feed_id]);
+        }
+    }
+    
+    /**
+     * Record API usage with GPT-5 specific fields
+     */
+    public static function record_api_usage($service, $endpoint, $tokens, $cost = 0, $success = true, $metadata = []) {
         global $wpdb;
         
         $table = $wpdb->prefix . 'rsp_api_usage';
-        return $wpdb->insert($table, [
+        
+        $data = [
             'api_service' => $service,
             'endpoint' => $endpoint,
+            'model' => $metadata['model'] ?? 'gpt-5',
             'tokens_used' => $tokens,
+            'input_tokens' => $metadata['input_tokens'] ?? 0,
+            'output_tokens' => $metadata['output_tokens'] ?? 0,
+            'reasoning_tokens' => $metadata['reasoning_tokens'] ?? 0,
             'cost_estimate' => $cost,
             'success' => $success ? 1 : 0,
-            'created_at' => current_time('mysql')
-        ]);
+            'response_time' => $metadata['response_time'] ?? 0,
+            'verbosity' => $metadata['verbosity'] ?? null,
+            'reasoning_effort' => $metadata['reasoning_effort'] ?? null,
+            'error_message' => $metadata['error_message'] ?? null,
+            'created_at' => current_time('mysql'),
+            'feed_id' => $metadata['feed_id'] ?? null,
+            'queue_id' => $metadata['queue_id'] ?? null
+        ];
+        
+        $result = $wpdb->insert($table, $data);
+        
+        // Update daily performance metrics
+        if ($result) {
+            self::update_performance_metrics($metadata['feed_id'] ?? null, $success, $tokens, $cost);
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * Update performance metrics
+     */
+    private static function update_performance_metrics($feed_id, $success, $tokens, $cost) {
+        global $wpdb;
+        
+        $table = $wpdb->prefix . 'rsp_performance_metrics';
+        $date = current_time('Y-m-d');
+        
+        // Check if record exists
+        $exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $table WHERE date = %s AND feed_id = %d",
+            $date,
+            $feed_id ?: 0
+        ));
+        
+        if ($exists) {
+            // Update existing record
+            $wpdb->query($wpdb->prepare(
+                "UPDATE $table SET 
+                    total_requests = total_requests + 1,
+                    successful_requests = successful_requests + %d,
+                    failed_requests = failed_requests + %d,
+                    total_tokens = total_tokens + %d,
+                    total_cost = total_cost + %f
+                WHERE date = %s AND feed_id = %d",
+                $success ? 1 : 0,
+                $success ? 0 : 1,
+                $tokens,
+                $cost,
+                $date,
+                $feed_id ?: 0
+            ));
+        } else {
+            // Insert new record
+            $wpdb->insert($table, [
+                'date' => $date,
+                'feed_id' => $feed_id,
+                'total_requests' => 1,
+                'successful_requests' => $success ? 1 : 0,
+                'failed_requests' => $success ? 0 : 1,
+                'total_tokens' => $tokens,
+                'total_cost' => $cost
+            ]);
+        }
+    }
+    
+    /**
+     * Record content analysis
+     */
+    public static function record_content_analysis($post_id, $feed_id, $analysis_data) {
+        global $wpdb;
+        
+        $table = $wpdb->prefix . 'rsp_content_analysis';
+        
+        return $wpdb->replace($table, array_merge([
+            'post_id' => $post_id,
+            'feed_id' => $feed_id,
+            'analyzed_at' => current_time('mysql')
+        ], $analysis_data));
+    }
+    
+    /**
+     * Get performance metrics for a date range
+     */
+    public static function get_performance_metrics($start_date = null, $end_date = null, $feed_id = null) {
+        global $wpdb;
+        
+        $table = $wpdb->prefix . 'rsp_performance_metrics';
+        
+        if (!$start_date) {
+            $start_date = date('Y-m-d', strtotime('-30 days'));
+        }
+        
+        if (!$end_date) {
+            $end_date = current_time('Y-m-d');
+        }
+        
+        $query = $wpdb->prepare(
+            "SELECT * FROM $table 
+            WHERE date BETWEEN %s AND %s",
+            $start_date,
+            $end_date
+        );
+        
+        if ($feed_id !== null) {
+            $query .= $wpdb->prepare(" AND feed_id = %d", $feed_id);
+        }
+        
+        $query .= " ORDER BY date DESC";
+        
+        return $wpdb->get_results($query);
+    }
+    
+    /**
+     * Get usage statistics
+     */
+    public static function get_usage_statistics($days = 30) {
+        global $wpdb;
+        
+        $api_table = $wpdb->prefix . 'rsp_api_usage';
+        $since = date('Y-m-d H:i:s', strtotime("-{$days} days"));
+        
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT 
+                COUNT(*) as total_requests,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_requests,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed_requests,
+                SUM(tokens_used) as total_tokens,
+                SUM(input_tokens) as total_input_tokens,
+                SUM(output_tokens) as total_output_tokens,
+                SUM(reasoning_tokens) as total_reasoning_tokens,
+                SUM(cost_estimate) as total_cost,
+                AVG(response_time) as avg_response_time,
+                MAX(created_at) as last_used
+            FROM $api_table 
+            WHERE created_at > %s",
+            $since
+        ));
+    }
+    
+    /**
+     * Clean old data
+     */
+    public static function cleanup_old_data($days_to_keep = 90) {
+        global $wpdb;
+        
+        $cutoff_date = date('Y-m-d H:i:s', strtotime("-{$days_to_keep} days"));
+        
+        // Clean old API usage records
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->prefix}rsp_api_usage WHERE created_at < %s",
+            $cutoff_date
+        ));
+        
+        // Clean old performance metrics
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->prefix}rsp_performance_metrics WHERE date < %s",
+            date('Y-m-d', strtotime("-{$days_to_keep} days"))
+        ));
+        
+        // Clean completed queue items older than 30 days
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->prefix}rsp_queue 
+            WHERE status IN ('completed', 'failed') AND processed_at < %s",
+            date('Y-m-d H:i:s', strtotime('-30 days'))
+        ));
     }
 }
