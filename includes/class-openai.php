@@ -2,7 +2,7 @@
 /**
  * OpenAI GPT-5 Integration for RSS Auto Publisher
  * Uses the /v1/chat/completions endpoint with GPT-5
- * Version 1.2.0 - Fixed response parsing for different API formats
+ * Version 1.3.0 - Production ready with all fixes applied
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -13,21 +13,20 @@ class RSP_OpenAI {
      * API configuration
      */
     private $api_key;
-    private $model = 'gpt-5'; // Fixed to GPT-5 (latest flagship model)
+    private $model = 'gpt-5';
     private $api_url = 'https://api.openai.com/v1/chat/completions';
-    private $debug_mode = true; // TEMPORARILY ENABLED FOR DEBUGGING
     
     /**
      * Model pricing per 1M tokens
      */
     private $pricing = [
-        'input' => 1.25,  // $1.25 per 1M input tokens
-        'cached_input' => 0.125, // $0.125 per 1M cached input tokens
-        'output' => 10.00  // $10.00 per 1M output tokens
+        'input' => 1.25,
+        'cached_input' => 0.125,
+        'output' => 10.00
     ];
     
     /**
-     * Supported languages (from original plugin)
+     * Supported languages
      */
     private $supported_languages = [
         'es' => 'Spanish',
@@ -44,17 +43,6 @@ class RSP_OpenAI {
      */
     public function __construct() {
         $this->api_key = get_option('rsp_openai_api_key');
-        // Enable debug mode based on WP_DEBUG or specific option
-        $this->debug_mode = true; // FORCE ENABLED FOR DEBUGGING
-    }
-    
-    /**
-     * Debug logging helper
-     */
-    private function debug_log($message) {
-        if ($this->debug_mode) {
-            error_log('RSS Auto Publisher: ' . $message);
-        }
     }
     
     /**
@@ -75,10 +63,7 @@ class RSP_OpenAI {
      * Enhanced content creation using title analysis
      */
     public function create_content_from_title($title, $description, $feed_settings) {
-        $this->debug_log("Creating content from title: {$title}");
-        
         if (!$this->is_configured()) {
-            $this->debug_log("API not configured");
             return false;
         }
         
@@ -101,18 +86,12 @@ class RSP_OpenAI {
             ]
         ];
         
-        // GPT-5 requires temperature = 1 (default)
         $response = $this->call_api($messages);
         if (!$response) {
-            $this->debug_log("API call failed for content creation");
             return false;
         }
         
-        $parsed = $this->parse_json_response($response);
-        if ($parsed && isset($parsed['title']) && isset($parsed['content'])) {
-            $this->debug_log("Content successfully created - Title: " . substr($parsed['title'], 0, 50) . "...");
-        }
-        return $parsed;
+        return $this->parse_json_response($response);
     }
     
     private function build_smart_prompt($title, $analysis, $settings) {
@@ -123,11 +102,9 @@ class RSP_OpenAI {
         $length = $settings['content_length'] ?? '900-1500';
         $custom_prompt = $settings['universal_prompt'] ?? '';
         
-        // Domain-specific instructions
         $domain_instructions = $this->get_domain_instructions($domain, $analysis['gambling_category']);
         $angle_instructions = $this->get_angle_instructions($angle);
         
-        // REDUCED SCOPE TO FIT IN TOKEN LIMITS
         $prompt = "
         Create a comprehensive article based on this title: '{$title}'
         
@@ -144,34 +121,36 @@ class RSP_OpenAI {
         4. Brief FAQ (2-3 questions)
         5. Conclusion
         
-        Return as JSON: {\"title\": \"SEO-optimized title\", \"content\": \"Full HTML article\"}
-        Keep the response concise and within token limits.
+        Return as JSON: {\"title\": \"SEO-optimized title\", \"content\": \"Full HTML article with <h2>, <h3>, <p>, <ul>, <li> tags\"}
         ";
+        
+        if ($custom_prompt) {
+            $prompt .= "\nAdditional instructions: {$custom_prompt}";
+        }
         
         return $prompt;
     }
     
     private function get_domain_instructions($domain, $gambling_category = null) {
         $instructions = [
-            'gambling' => 'GAMBLING FOCUS: Include responsible gambling disclaimers. Focus on strategy, education, and informed decision-making. Mention odds, bankroll management, and legal considerations where relevant. Emphasize risk management and never guarantee wins.',
-            'sports' => 'SPORTS FOCUS: Include player stats, team analysis, and strategic insights. Use current season data and provide fantasy-relevant information. Include injury updates and lineup considerations.',
-            'technology' => 'TECH FOCUS: Explain technical concepts clearly, include practical applications, and mention latest trends or updates. Provide step-by-step guides where appropriate.',
-            'business' => 'BUSINESS FOCUS: Include actionable business advice, market insights, and practical implementation tips. Use real-world examples and case studies.',
-            'health' => 'HEALTH FOCUS: Provide evidence-based information, include safety considerations, and mention when to consult professionals. Avoid medical diagnosis or treatment claims.',
-            'lifestyle' => 'LIFESTYLE FOCUS: Provide practical lifestyle advice, include personal experiences and relatable examples. Focus on actionable tips readers can implement.',
-            'news' => 'NEWS FOCUS: Provide balanced analysis, include multiple perspectives, and explain the broader implications. Use factual, unbiased language.'
+            'gambling' => 'GAMBLING FOCUS: Include responsible gambling disclaimers. Focus on strategy and education. Mention odds and bankroll management.',
+            'sports' => 'SPORTS FOCUS: Include player stats, team analysis, and strategic insights. Use current season data and fantasy-relevant information.',
+            'technology' => 'TECH FOCUS: Explain technical concepts clearly, include practical applications and latest trends.',
+            'business' => 'BUSINESS FOCUS: Include actionable advice, market insights, and practical implementation tips.',
+            'health' => 'HEALTH FOCUS: Provide evidence-based information and safety considerations.',
+            'lifestyle' => 'LIFESTYLE FOCUS: Provide practical advice and actionable tips.',
+            'news' => 'NEWS FOCUS: Provide balanced analysis and multiple perspectives.'
         ];
         
         $base_instruction = $instructions[$domain] ?? 'Focus on providing valuable, accurate information with practical applications.';
         
-        // Add gambling subcategory specific instructions
         if ($domain === 'gambling' && $gambling_category) {
             $gambling_specifics = [
-                'sports_betting' => ' Focus on betting strategies, odds analysis, and bankroll management for sports wagering.',
-                'casino' => ' Focus on game strategies, RTP analysis, and casino bonus optimization.',
-                'poker' => ' Focus on poker strategy, tournament tips, and skill development.',
-                'horse_racing' => ' Focus on handicapping, track analysis, and betting systems.',
-                'esports_betting' => ' Focus on esports knowledge, team analysis, and tournament betting strategies.'
+                'sports_betting' => ' Focus on betting strategies and odds analysis.',
+                'casino' => ' Focus on game strategies and RTP analysis.',
+                'poker' => ' Focus on poker strategy and tournament tips.',
+                'horse_racing' => ' Focus on handicapping and track analysis.',
+                'esports_betting' => ' Focus on esports knowledge and team analysis.'
             ];
             
             $base_instruction .= $gambling_specifics[$gambling_category] ?? '';
@@ -182,19 +161,19 @@ class RSP_OpenAI {
     
     private function get_angle_instructions($angle) {
         $instructions = [
-            'beginner_guide' => 'Write for newcomers. Explain basics clearly, define terminology, and provide step-by-step guidance. Assume no prior knowledge.',
-            'expert_analysis' => 'Write for experienced readers. Include advanced strategies, detailed analysis, and insider insights. Use industry terminology naturally.',
-            'practical_tips' => 'Focus on actionable advice. Provide specific tips, techniques, and real-world applications. Include implementation steps.',
-            'comparison' => 'Compare options objectively. Include pros/cons, feature comparisons, and clear recommendations based on different use cases.',
-            'prediction' => 'Analyze trends and provide forecasts. Use data to support predictions and explain reasoning behind projections.',
-            'contrarian_view' => 'Challenge conventional wisdom. Present alternative perspectives and explain why popular opinions might be wrong.'
+            'beginner_guide' => 'Write for newcomers. Explain basics clearly and provide step-by-step guidance.',
+            'expert_analysis' => 'Write for experienced readers. Include advanced strategies and detailed analysis.',
+            'practical_tips' => 'Focus on actionable advice and specific tips.',
+            'comparison' => 'Compare options objectively with pros/cons.',
+            'prediction' => 'Analyze trends and provide data-supported forecasts.',
+            'contrarian_view' => 'Challenge conventional wisdom with alternative perspectives.'
         ];
         
-        return $instructions[$angle] ?? 'Provide valuable insights and practical information that helps readers make informed decisions.';
+        return $instructions[$angle] ?? 'Provide valuable insights and practical information.';
     }
     
     /**
-     * Enhance content using GPT-5 (legacy method for backwards compatibility)
+     * Enhance content using GPT-5
      */
     public function enhance_content($title, $content, $options = []) {
         if (!$this->is_configured()) {
@@ -210,21 +189,14 @@ class RSP_OpenAI {
         ];
         
         $options = wp_parse_args($options, $defaults);
-        
-        // Build the enhancement input with role-based messages
         $messages = $this->build_enhancement_input($title, $content, $options);
         
-        // Make API call
         $response = $this->call_api($messages);
-        
         if (!$response) {
             return false;
         }
         
-        // Parse the response
-        $enhanced = $this->parse_json_response($response);
-        
-        return $enhanced;
+        return $this->parse_json_response($response);
     }
     
     /**
@@ -237,29 +209,23 @@ class RSP_OpenAI {
         
         $target_name = $this->supported_languages[$target_language] ?? $target_language;
         
-        // Build translation input using role-based format
         $messages = [
             [
                 'role' => 'system',
-                'content' => "You are a professional translator. Translate content to {$target_name} while preserving HTML formatting, tone, and ensuring natural fluent language."
+                'content' => "You are a professional translator. Translate content to {$target_name} while preserving HTML formatting."
             ],
             [
                 'role' => 'user',
-                'content' => "Translate this to {$target_name}. Return as JSON with 'title' and 'content' fields:\n\nTitle: {$title}\n\nContent:\n{$content}"
+                'content' => "Translate to {$target_name}. Return as JSON with 'title' and 'content' fields:\n\nTitle: {$title}\n\nContent:\n{$content}"
             ]
         ];
         
-        // Make API call
         $response = $this->call_api($messages);
-        
         if (!$response) {
             return false;
         }
         
-        // Parse the response
-        $translated = $this->parse_json_response($response);
-        
-        return $translated;
+        return $this->parse_json_response($response);
     }
     
     /**
@@ -268,16 +234,15 @@ class RSP_OpenAI {
     private function build_enhancement_input($title, $content, $options) {
         $system_prompt = "You are an expert content writer and editor specializing in ";
         
-        // Style-specific instructions
         switch ($options['style']) {
             case 'professional':
                 $system_prompt .= "professional, authoritative business content.";
                 break;
             case 'casual':
-                $system_prompt .= "conversational, engaging content that's easy to read.";
+                $system_prompt .= "conversational, engaging content.";
                 break;
             case 'technical':
-                $system_prompt .= "technical writing with precision and accuracy.";
+                $system_prompt .= "technical writing with precision.";
                 break;
             case 'creative':
                 $system_prompt .= "creative, captivating storytelling.";
@@ -285,55 +250,44 @@ class RSP_OpenAI {
         }
         
         $requirements = [
-            "Improve clarity, readability, and engagement",
-            "Fix grammar and spelling errors",
+            "Improve clarity and engagement",
+            "Fix grammar and spelling",
             "Enhance structure and flow",
-            "Preserve all factual information",
+            "Preserve factual information",
             "Maintain HTML formatting"
         ];
         
-        // Length preference
         if ($options['length'] === 'shorter') {
             $requirements[] = "Make content 20-30% more concise";
         } elseif ($options['length'] === 'longer') {
             $requirements[] = "Expand content by 30-50% with relevant details";
-        } else {
-            $requirements[] = "Keep content length similar";
         }
         
-        // SEO focus
         if ($options['seo_focus'] && !empty($options['keywords'])) {
             $keywords = implode(', ', $options['keywords']);
             $requirements[] = "Optimize for SEO keywords: {$keywords}";
         }
         
-        // Custom prompt
         if (!empty($options['custom_prompt'])) {
             $requirements[] = $options['custom_prompt'];
         }
         
         $requirements_text = implode("\n- ", $requirements);
         
-        // Build messages array for GPT-5 chat/completions format
-        $messages = [
+        return [
             [
                 'role' => 'system',
                 'content' => $system_prompt
             ],
             [
                 'role' => 'user',
-                'content' => "Enhance this content following these requirements:\n- {$requirements_text}\n\nReturn as JSON with 'title' and 'content' fields.\n\nOriginal Title: {$title}\n\nOriginal Content:\n{$content}"
+                'content' => "Enhance this content:\n- {$requirements_text}\n\nReturn as JSON with 'title' and 'content' fields.\n\nTitle: {$title}\n\nContent:\n{$content}"
             ]
         ];
-        
-        return $messages;
     }
     
     /**
-     * Call OpenAI GPT-5 API using /v1/chat/completions endpoint
-     * FIXED: Using max_completion_tokens instead of max_tokens
-     * FIXED: Temperature must be 1 for GPT-5
-     * FIXED: Multiple response format handling
+     * Call OpenAI GPT-5 API
      */
     private function call_api($messages) {
         $headers = [
@@ -341,118 +295,63 @@ class RSP_OpenAI {
             'Content-Type' => 'application/json',
         ];
         
-        // Build request body for GPT-5 with FIXED parameters
         $body = [
             'model' => $this->model,
             'messages' => $messages,
-            // Temperature parameter removed - let GPT-5 use its default
-            'max_completion_tokens' => 2500, // Reduced to ensure complete JSON response
+            'max_completion_tokens' => 2500,
             'response_format' => [
                 'type' => 'json_object'
             ]
         ];
         
-        $this->debug_log("Making API call to GPT-5");
-        $start_time = microtime(true);
-        
-        // Use longer timeout and better error handling
         $response = wp_remote_post($this->api_url, [
             'headers' => $headers,
             'body' => json_encode($body),
-            'timeout' => 180, // 3 minutes timeout for GPT-5
+            'timeout' => 180,
             'httpversion' => '1.1',
             'blocking' => true,
             'sslverify' => true
         ]);
         
-        $elapsed_time = round(microtime(true) - $start_time, 2);
-        $this->debug_log("API call completed in {$elapsed_time} seconds");
-        
         if (is_wp_error($response)) {
-            $error_message = $response->get_error_message();
-            $this->debug_log("WP Error: " . $error_message);
-            error_log('RSS Auto Publisher API Error: ' . $error_message);
-            
-            // Check for timeout specifically
-            if (strpos($error_message, 'cURL error 28') !== false || strpos($error_message, 'timeout') !== false) {
-                $this->debug_log("Request timed out after {$elapsed_time} seconds");
-                error_log('RSS Auto Publisher: API request timed out');
-            }
-            
+            error_log('RSS Auto Publisher API Error: ' . $response->get_error_message());
             return false;
         }
         
         $response_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
         
-        $this->debug_log("API Response Code: " . $response_code);
-        $this->debug_log("Response body length: " . strlen($response_body) . " bytes");
-        
         if (empty($response_body)) {
-            $this->debug_log("Empty response body received");
             error_log('RSS Auto Publisher: Empty response from API');
             return false;
         }
         
-        // Log first 1KB of response for debugging
-        $this->debug_log("First 1KB of raw response: " . substr($response_body, 0, 1024));
-        
-        if ($response_code !== 200) {
-            $this->debug_log("Non-200 response code: " . $response_code);
-            error_log('RSS Auto Publisher: Non-200 response code: ' . $response_code);
-        }
-        
-        // Try to decode JSON
         $data = json_decode($response_body, true);
         
         if (!$data) {
-            $json_error = json_last_error_msg();
-            $this->debug_log("JSON decode error: " . $json_error);
-            $this->debug_log("Raw response for debugging: " . $response_body);
-            error_log('RSS Auto Publisher: Failed to decode API response - ' . $json_error);
+            error_log('RSS Auto Publisher: Failed to decode API response');
             return false;
         }
         
-        // Log the structure for debugging
-        $this->debug_log("Top-level JSON keys: " . json_encode(array_keys($data)));
-        
-        // Check for errors
         if (isset($data['error'])) {
-            $error_msg = json_encode($data['error']);
-            $this->debug_log("API Error: " . $error_msg);
-            error_log('RSS Auto Publisher API Error: ' . $error_msg);
+            error_log('RSS Auto Publisher API Error: ' . json_encode($data['error']));
             
-            // Check for rate limit errors
             if ($response_code === 429) {
                 $this->handle_rate_limit($data['error']);
             }
             
-            // Special handling for parameter errors
-            if (isset($data['error']['param'])) {
-                $this->debug_log("Parameter issue with: " . $data['error']['param'] . " - " . ($data['error']['message'] ?? ''));
-            }
-            
             return false;
         }
         
-        // COMPREHENSIVE RESPONSE EXTRACTION - Try multiple formats
+        // Extract content from response - handles multiple formats
         $content = null;
         
-        // 1. Standard Chat Completions format
         if (isset($data['choices'][0]['message']['content'])) {
-            $this->debug_log("Found content in choices[0].message.content");
             $content = $data['choices'][0]['message']['content'];
-        }
-        // 2. Responses API convenience format
-        elseif (isset($data['output_text'])) {
-            $this->debug_log("Found content in output_text");
+        } elseif (isset($data['output_text'])) {
             $content = $data['output_text'];
-        }
-        // 3. Responses API verbose format
-        elseif (isset($data['output'])) {
-            $this->debug_log("Found output array, attempting to extract text");
+        } elseif (isset($data['output'])) {
             $text_parts = [];
-            
             if (is_array($data['output'])) {
                 foreach ($data['output'] as $segment) {
                     if (isset($segment['content'])) {
@@ -462,56 +361,22 @@ class RSP_OpenAI {
                             }
                         }
                     }
-                    // Also check direct text field
                     if (isset($segment['text'])) {
                         $text_parts[] = $segment['text'];
                     }
                 }
             }
-            
             $content = implode('', $text_parts);
-            $this->debug_log("Extracted " . count($text_parts) . " text segments from output array");
-        }
-        // 4. Direct content field (some APIs)
-        elseif (isset($data['content'])) {
-            $this->debug_log("Found content in direct content field");
+        } elseif (isset($data['content'])) {
             $content = $data['content'];
-        }
-        // 5. Result field (alternative format)
-        elseif (isset($data['result'])) {
-            $this->debug_log("Found content in result field");
+        } elseif (isset($data['result'])) {
             $content = $data['result'];
         }
         
-        // Log what we found
-        if ($content !== null) {
-            $this->debug_log("Successfully extracted content, length: " . strlen($content));
-            
-            // Log finish reason if available
-            if (isset($data['choices'][0]['finish_reason'])) {
-                $this->debug_log("Finish reason: " . $data['choices'][0]['finish_reason']);
-            }
-        } else {
-            $this->debug_log("ERROR: Could not extract content from response");
-            $this->debug_log("Full response structure: " . json_encode($data));
-            
-            // Log all available keys at different levels for debugging
-            if (isset($data['choices']) && is_array($data['choices']) && !empty($data['choices'])) {
-                $this->debug_log("choices[0] keys: " . json_encode(array_keys($data['choices'][0])));
-                if (isset($data['choices'][0]['message'])) {
-                    $this->debug_log("choices[0].message keys: " . json_encode(array_keys($data['choices'][0]['message'])));
-                }
-            }
-        }
-        
-        // Record usage for cost tracking
         if (isset($data['usage'])) {
             $this->record_usage($data['usage']);
-            $this->debug_log("Tokens used - Input: " . ($data['usage']['prompt_tokens'] ?? 0) . 
-                           ", Output: " . ($data['usage']['completion_tokens'] ?? 0));
         }
         
-        // Return the extracted content (or null if not found)
         return $content;
     }
     
@@ -520,49 +385,36 @@ class RSP_OpenAI {
      */
     private function parse_json_response($text) {
         if (empty($text)) {
-            $this->debug_log("Empty text provided to parse_json_response");
             return false;
         }
         
-        // Try to parse as JSON first
         $decoded = json_decode($text, true);
         
         if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
-            $this->debug_log("Successfully parsed JSON response");
             return $decoded;
         }
         
-        // Log JSON error if debug mode
-        if ($this->debug_mode && json_last_error() !== JSON_ERROR_NONE) {
-            $this->debug_log("JSON parse error: " . json_last_error_msg());
-            $this->debug_log("Attempting fallback parsing methods");
-        }
-        
-        // Fallback: extract JSON from text if wrapped in markdown or other formatting
+        // Try extracting JSON from markdown code blocks
         if (preg_match('/```json\s*(.+?)\s*```/s', $text, $matches)) {
             $decoded = json_decode($matches[1], true);
             if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
-                $this->debug_log("Successfully parsed JSON from code block");
                 return $decoded;
             }
         }
         
-        // Final fallback: try to find JSON anywhere in the text
+        // Try finding JSON pattern in text
         if (preg_match('/\{[^}]*"title"[^}]*"content"[^}]*\}/s', $text, $matches)) {
             $decoded = json_decode($matches[0], true);
             if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
-                $this->debug_log("Successfully parsed JSON from text pattern");
                 return $decoded;
             }
         }
         
-        // Use fallback parser if JSON parsing fails
-        $this->debug_log("All JSON parsing failed, using fallback parser");
         return $this->parse_enhancement_response($text);
     }
     
     /**
-     * Parse enhancement response (fallback for non-JSON)
+     * Parse enhancement response (fallback)
      */
     private function parse_enhancement_response($text) {
         $result = [
@@ -570,7 +422,6 @@ class RSP_OpenAI {
             'content' => ''
         ];
         
-        // Look for TITLE: and CONTENT: markers
         if (preg_match('/(?:TITLE|Title):\s*(.+?)(?:\n|$)/i', $text, $title_match)) {
             $result['title'] = trim($title_match[1]);
         }
@@ -579,14 +430,11 @@ class RSP_OpenAI {
             $result['content'] = trim($content_match[1]);
         }
         
-        // If still empty, treat first line as title, rest as content
         if (empty($result['title']) && empty($result['content'])) {
             $lines = explode("\n", $text, 2);
             $result['title'] = trim($lines[0]);
             $result['content'] = isset($lines[1]) ? trim($lines[1]) : '';
         }
-        
-        $this->debug_log("Fallback parser result - Title: " . substr($result['title'], 0, 50) . ", Content length: " . strlen($result['content']));
         
         return $result;
     }
@@ -595,14 +443,11 @@ class RSP_OpenAI {
      * Handle rate limit errors
      */
     private function handle_rate_limit($error) {
-        // Store rate limit info in transient
         $retry_after = isset($error['retry_after']) ? intval($error['retry_after']) : 60;
         set_transient('rsp_rate_limited', true, $retry_after);
         
-        $this->debug_log("Rate limited - retry after {$retry_after} seconds");
-        error_log("RSS Auto Publisher: GPT-5 Rate Limited - Retry after {$retry_after} seconds");
+        error_log("RSS Auto Publisher: Rate limited - retry after {$retry_after} seconds");
         
-        // Send admin notification
         $this->send_rate_limit_notification($retry_after);
     }
     
@@ -637,15 +482,12 @@ class RSP_OpenAI {
         $output_tokens = $usage_data['completion_tokens'] ?? 0;
         $total_tokens = $usage_data['total_tokens'] ?? 0;
         
-        // Calculate cost based on GPT-5 pricing
         $cost = 0;
         $cost += ($input_tokens / 1000000) * $this->pricing['input'];
         $cost += ($output_tokens / 1000000) * $this->pricing['output'];
         
-        // Store detailed usage
         RSP_Database::record_api_usage('openai-gpt5', 'chat/completions', $total_tokens, $cost, true);
         
-        // Update daily usage counter for rate limiting awareness
         $daily_usage = get_option('rsp_daily_token_usage', [
             'date' => date('Y-m-d'),
             'tokens' => 0,
@@ -691,13 +533,11 @@ class RSP_OpenAI {
             $since
         ));
         
-        // Add daily usage
         $daily_usage = get_option('rsp_daily_token_usage', []);
         $stats->daily_tokens = $daily_usage['tokens'] ?? 0;
         $stats->daily_requests = $daily_usage['requests'] ?? 0;
         $stats->daily_cost = $daily_usage['cost'] ?? 0;
         
-        // Calculate remaining capacity (Tier 3 limits)
         $stats->rpm_limit = 5000;
         $stats->tpm_limit = 800000;
         $stats->rpm_used = $stats->daily_requests;
