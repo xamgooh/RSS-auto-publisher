@@ -195,6 +195,8 @@ class RSP_OpenAI {
             // Try to parse as JSON
             $decoded = json_decode($output_text, true);
             if (json_last_error() === JSON_ERROR_NONE && isset($decoded['title']) && isset($decoded['content'])) {
+                // Clean up the content before returning
+                $decoded['content'] = $this->clean_article_content($decoded['content']);
                 return $decoded;
             }
             
@@ -204,11 +206,70 @@ class RSP_OpenAI {
         
         // Handle different response structures
         if (isset($data['choices'][0]['text'])) {
-            return $this->parse_raw_content($data['choices'][0]['text']);
+            $content = $this->parse_raw_content($data['choices'][0]['text']);
+            $content['content'] = $this->clean_article_content($content['content']);
+            return $content;
         }
         
         error_log('RSS Auto Publisher: Unexpected GPT-5 response structure: ' . json_encode($data));
         return false;
+    }
+    
+    /**
+     * Clean article content from unwanted labels
+     */
+    private function clean_article_content($content) {
+        // Remove common section labels that shouldn't appear in output
+        $unwanted_patterns = [
+            '/^INTRODUCTION:?\s*/mi',
+            '/^INNLEDNING:?\s*/mi',
+            '/^HOVEDDEL \d+:?\s*/mi',
+            '/^MAIN PART \d+:?\s*/mi',
+            '/^MAIN SECTION \d+:?\s*/mi',
+            '/^BACKGROUND SECTION:?\s*/mi',
+            '/^OVERVIEW SECTION:?\s*/mi',
+            '/^ANALYSIS SECTION:?\s*/mi',
+            '/^PRACTICAL SECTION:?\s*/mi',
+            '/^FAQ[- ]?SECTION:?\s*/mi',
+            '/^CONCLUSION SECTION:?\s*/mi',
+            '/^TIPS SECTION:?\s*/mi',
+            '/^<h[1-6]>INTRODUCTION:?\s*/mi',
+            '/^<h[1-6]>INNLEDNING:?\s*/mi',
+            '/^<h[1-6]>HOVEDDEL \d+:?\s*/mi',
+            '/^<h[1-6]>MAIN PART \d+:?\s*/mi',
+            '/^<h[1-6]>FAQ[- ]?SEKSJON:?\s*/mi',
+        ];
+        
+        foreach ($unwanted_patterns as $pattern) {
+            $content = preg_replace($pattern, '', $content);
+        }
+        
+        // Clean up any headers that are just labels
+        $content = preg_replace('/<h2>\s*(INTRODUCTION|BACKGROUND|OVERVIEW|ANALYSIS|CONCLUSION)\s*<\/h2>/i', '', $content);
+        
+        // Ensure proper spacing between paragraphs
+        $content = preg_replace('/(<\/p>)\s*(<p>)/', "$1\n\n$2", $content);
+        
+        // Ensure lists are properly formatted
+        $content = preg_replace('/(<\/li>)\s*(<li>)/', "$1\n$2", $content);
+        
+        // Add proper spacing around headers
+        $content = preg_replace('/(<\/[^>]+>)(<h[2-3]>)/', "$1\n\n$2", $content);
+        $content = preg_replace('/(<\/h[2-3]>)(<[^h])/', "$1\n\n$2", $content);
+        
+        // Ensure tables have proper structure
+        if (strpos($content, '<table>') !== false && strpos($content, '<thead>') === false) {
+            // Add thead/tbody structure if missing
+            $content = preg_replace(
+                '/<table>(\s*<tr>.*?<\/tr>)/s',
+                '<table class="wp-table">\n<thead>$1</thead>\n<tbody>',
+                $content,
+                1
+            );
+            $content = str_replace('</table>', '</tbody>\n</table>', $content);
+        }
+        
+        return trim($content);
     }
     
     /**
@@ -217,80 +278,100 @@ class RSP_OpenAI {
     private function build_gpt5_prompt($title, $description, $analysis, $settings) {
         $domain = $analysis['domain'];
         $keywords = implode(', ', array_slice($analysis['seo_keywords'], 0, 5));
-        $length_range = explode('-', $settings['content_length'] ?? '1500-2500');
+        $length_range = explode('-', $settings['content_length'] ?? '1800-2500');
         $min_words = $length_range[0];
         $max_words = $length_range[1] ?? ($min_words + 1000);
         
-        // GPT-5 specific prompt optimized for high verbosity output
+        // GPT-5 specific prompt optimized for natural, well-formatted output
         $prompt = "You are an expert content writer. Create a comprehensive, detailed article about: '{$title}'
 
 CRITICAL REQUIREMENTS:
-- Target length: {$min_words}-{$max_words} words (MUST generate complete content)
-- Style: Professional, engaging, informative
-- Include ALL sections with substantial content (no placeholders or abbreviations)
-- Output format: JSON with 'title' and 'content' fields
+- Target length: {$min_words}-{$max_words} words minimum
+- Style: Professional, engaging, natural flow
+- Use rich HTML formatting throughout
+- DO NOT include section labels like 'INTRODUCTION' or 'MAIN PART 1' in the output
+- Create natural headings that flow with the content
 
 TARGET SEO KEYWORDS: {$keywords}
 DOMAIN: {$domain}
 
-ARTICLE STRUCTURE (every section must be fully written):
+HTML FORMATTING REQUIREMENTS:
+- Use <h2> for main section headings (make them natural, topic-specific)
+- Use <h3> for subsections
+- Use <strong> to emphasize important points
+- Use <em> for subtle emphasis
+- Use <ul> and <li> for lists (at least 3-4 lists throughout)
+- Include at least 1-2 HTML tables where data comparison makes sense
+- Format tips and recommendations as bulleted lists
+- Use <blockquote> for important callouts
 
-1. **Introduction** (250-300 words)
-   Write an engaging introduction that:
-   - Hooks the reader immediately
-   - Clearly introduces the main topic
-   - Explains why this matters to readers
-   - Previews the main points to be covered
+ARTICLE STRUCTURE TO FOLLOW (but don't label these in output):
 
-2. **Background and Context** (400-500 words)
-   Provide comprehensive background including:
-   - Historical context or development
-   - Key concepts and definitions
-   - Current state of the topic
-   - Important trends or changes
+1. Opening section (300+ words)
+   - Start directly with engaging content about the topic
+   - Hook the reader with interesting facts or questions
+   - Preview what the article will cover
+   - Make it compelling and relevant
 
-3. **Detailed Analysis** (500-600 words)
-   Deep dive into the main topic with:
-   - Multiple perspectives and viewpoints
-   - Supporting data and statistics
-   - Expert insights or research findings
-   - Real-world examples and case studies
+2. Background/Overview section (500+ words)
+   - Use a natural heading related to the topic (NOT 'Background')
+   - Provide context and foundational information
+   - Define key terms naturally within the text
+   - Include a comparison table if relevant
+   - Use bullet points for key concepts
 
-4. **Practical Applications** (400-500 words)
-   Cover real-world applications:
-   - How to implement or use this information
-   - Step-by-step guidance where applicable
-   - Common challenges and solutions
-   - Best practices and recommendations
+3. Main Analysis section (600+ words)
+   - Use a specific, descriptive heading
+   - Deep exploration with multiple subsections (<h3>)
+   - Include data, statistics, examples
+   - Use bold text for key points
+   - Add a data table if applicable
 
-5. **Tips and Strategies** (350-400 words)
-   Provide 8-10 specific tips including:
-   - Actionable advice readers can implement
-   - Professional recommendations
-   - Tools and resources
-   - Common mistakes to avoid
+4. Practical Implementation section (500+ words)
+   - Use an action-oriented heading
+   - Step-by-step guidance formatted as numbered list
+   - Real-world applications
+   - Include tips as bulleted list
+   - Case studies or examples
 
-6. **Frequently Asked Questions** (300-400 words)
-   Answer 5-6 common questions with:
-   - Comprehensive answers to each
-   - Address misconceptions
-   - Provide additional insights
-   - Clarify complex points
+5. Best Practices/Tips section (400+ words)
+   - Use a helpful, specific heading
+   - Format as a well-structured bulleted list
+   - Each tip should be 2-3 sentences
+   - Use <strong> for tip titles
+   - Include 10-12 actionable tips
 
-7. **Conclusion** (200-250 words)
-   Strong conclusion that:
-   - Summarizes key takeaways
-   - Reinforces main message
-   - Provides future outlook
-   - Includes clear call to action
+6. FAQ section (400+ words)
+   - Use heading like 'Frequently Asked Questions' or 'Common Questions'
+   - Include 7-8 questions minimum
+   - Format questions as <h3> or <strong>
+   - Provide detailed 60-80 word answers
+   - Cover diverse aspects of the topic
+
+7. Conclusion (250+ words)
+   - Use a forward-looking heading
+   - Summarize key points in a bullet list
+   - Include next steps
+   - Strong call to action
+   - Future outlook
+
+EXAMPLE OF NATURAL HEADINGS:
+Instead of 'INTRODUCTION', use something like 'Understanding [Topic]'
+Instead of 'MAIN SECTION 1', use 'How [Topic] Works'
+Instead of 'PRACTICAL APPLICATIONS', use 'Implementing [Topic] Successfully'
 
 FORMAT YOUR RESPONSE AS:
 {
   \"title\": \"[SEO-optimized title, 60-70 characters]\",
-  \"content\": \"[Complete HTML article using <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em> tags]\"
+  \"content\": \"[Complete HTML article with natural headings and rich formatting]\"
 }
 
-IMPORTANT: Generate COMPLETE, DETAILED content for EVERY section. This is a full article, not an outline or summary.";
+REMEMBER: 
+- NO section labels in the output
+- Use natural, flowing headings
+- Include multiple lists and at least one table
+- Bold important terms and concepts
+- Minimum {$min_words} words total";
 
         if (!empty($description)) {
             $prompt .= "\n\nAdditional context: " . substr($description, 0, 500);
@@ -299,6 +380,30 @@ IMPORTANT: Generate COMPLETE, DETAILED content for EVERY section. This is a full
         if (!empty($settings['enhancement_prompt'])) {
             $prompt .= "\n\nCustom requirements: " . $settings['enhancement_prompt'];
         }
+        
+        // Add example of good formatting
+        $prompt .= "\n\nEXAMPLE OF GOOD OUTPUT STRUCTURE (content only, no labels):
+        
+<h2>Understanding Fantasy Football Fixture Difficulty</h2>
+<p>When it comes to Fantasy Premier League success, <strong>fixture difficulty ratings</strong> are your secret weapon...</p>
+
+<h2>How Fixture Ratings Transform Your FPL Strategy</h2>
+<p>The concept is simple but powerful...</p>
+<ul>
+<li><strong>Home advantage:</strong> Teams typically perform 15-20% better at home</li>
+<li><strong>Form metrics:</strong> Recent performance weighted over season average</li>
+</ul>
+
+<table>
+<tr><th>Rating</th><th>Difficulty</th><th>Example Opponents</th></tr>
+<tr><td>1</td><td>Very Easy</td><td>Newly promoted teams</td></tr>
+</table>
+
+<h2>Frequently Asked Questions</h2>
+<h3>How often should I check fixture difficulty?</h3>
+<p>Weekly reviews are essential because...</p>
+
+DO NOT include 'INTRODUCTION:', 'MAIN PART 1:', 'FAQ SECTION:' or similar labels.";
         
         return $prompt;
     }
@@ -317,7 +422,7 @@ IMPORTANT: Generate COMPLETE, DETAILED content for EVERY section. This is a full
         $messages = [
             [
                 'role' => 'system',
-                'content' => 'You are an expert content writer. Generate comprehensive, detailed articles with complete content in every section. Use high verbosity and ensure articles are at least 1500 words.'
+                'content' => 'You are an expert content writer. Generate comprehensive, detailed articles with complete content in every section. Use high verbosity and natural headings. Format with rich HTML including lists, tables, and emphasis. Never use section labels like INTRODUCTION or MAIN PART in the output.'
             ],
             [
                 'role' => 'user',
@@ -372,10 +477,14 @@ IMPORTANT: Generate COMPLETE, DETAILED content for EVERY section. This is a full
             $decoded = json_decode($content, true);
             
             if (json_last_error() === JSON_ERROR_NONE && isset($decoded['title']) && isset($decoded['content'])) {
+                // Clean the content before returning
+                $decoded['content'] = $this->clean_article_content($decoded['content']);
                 return $decoded;
             }
             
-            return $this->parse_raw_content($content);
+            $parsed = $this->parse_raw_content($content);
+            $parsed['content'] = $this->clean_article_content($parsed['content']);
+            return $parsed;
         }
         
         return false;
