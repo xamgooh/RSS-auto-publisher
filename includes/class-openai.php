@@ -365,17 +365,32 @@ class RSP_OpenAI {
         ];
         
         $this->debug_log("Making API call to GPT-5");
+        $start_time = microtime(true);
         
+        // Use longer timeout and better error handling
         $response = wp_remote_post($this->api_url, [
             'headers' => $headers,
             'body' => json_encode($body),
-            'timeout' => 120, // Increased timeout for GPT-5
+            'timeout' => 180, // 3 minutes timeout for GPT-5
+            'httpversion' => '1.1',
+            'blocking' => true,
+            'sslverify' => true
         ]);
+        
+        $elapsed_time = round(microtime(true) - $start_time, 2);
+        $this->debug_log("API call completed in {$elapsed_time} seconds");
         
         if (is_wp_error($response)) {
             $error_message = $response->get_error_message();
             $this->debug_log("WP Error: " . $error_message);
             error_log('RSS Auto Publisher API Error: ' . $error_message);
+            
+            // Check for timeout specifically
+            if (strpos($error_message, 'cURL error 28') !== false || strpos($error_message, 'timeout') !== false) {
+                $this->debug_log("Request timed out after {$elapsed_time} seconds");
+                error_log('RSS Auto Publisher: API request timed out');
+            }
+            
             return false;
         }
         
@@ -383,16 +398,27 @@ class RSP_OpenAI {
         $response_body = wp_remote_retrieve_body($response);
         
         $this->debug_log("API Response Code: " . $response_code);
+        $this->debug_log("Response body length: " . strlen($response_body) . " bytes");
         
-        if ($response_code !== 200) {
-            $this->debug_log("Non-200 response: " . substr($response_body, 0, 500));
+        if (empty($response_body)) {
+            $this->debug_log("Empty response body received");
+            error_log('RSS Auto Publisher: Empty response from API');
+            return false;
         }
         
+        if ($response_code !== 200) {
+            $this->debug_log("Non-200 response: " . substr($response_body, 0, 1000));
+            error_log('RSS Auto Publisher: Non-200 response code: ' . $response_code);
+        }
+        
+        // Try to decode JSON
         $data = json_decode($response_body, true);
         
         if (!$data) {
-            $this->debug_log("Failed to decode JSON response");
-            error_log('RSS Auto Publisher: Failed to decode API response');
+            $json_error = json_last_error_msg();
+            $this->debug_log("JSON decode error: " . $json_error);
+            $this->debug_log("First 500 chars of response: " . substr($response_body, 0, 500));
+            error_log('RSS Auto Publisher: Failed to decode API response - ' . $json_error);
             return false;
         }
         
@@ -418,6 +444,10 @@ class RSP_OpenAI {
         // Extract the text from the GPT-5 response format
         if (!isset($data['choices'][0]['message']['content'])) {
             $this->debug_log("Unexpected response format - missing choices[0].message.content");
+            $this->debug_log("Response structure: " . json_encode(array_keys($data)));
+            if (isset($data['choices'][0])) {
+                $this->debug_log("choices[0] structure: " . json_encode(array_keys($data['choices'][0])));
+            }
             error_log('RSS Auto Publisher: Unexpected response format from API');
             return false;
         }
