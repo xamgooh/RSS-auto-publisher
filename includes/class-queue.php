@@ -84,6 +84,10 @@ class RSP_Queue {
                     $success = self::process_feed_item($feed, $data);
                     break;
                     
+                case 'create_smart_content':
+                    $success = self::create_smart_content($feed, $data);
+                    break;
+                    
                 case 'enhance_content':
                     $success = self::enhance_content($feed, $data);
                     break;
@@ -116,13 +120,25 @@ class RSP_Queue {
     }
     
     /**
-     * Process feed item
+     * Process feed item (updated to use new smart content creation)
      */
     private static function process_feed_item($feed, $data) {
-        // Check if enhancement is enabled
+        // Load feed settings (including new options)
+        $feed_settings = [
+            'content_domain' => $feed->content_domain ?? 'auto',
+            'content_angle' => $feed->content_angle ?? 'auto',
+            'seo_focus' => $feed->seo_focus ?? 'informational',
+            'target_keywords' => $feed->target_keywords ?? '',
+            'content_length' => $feed->content_length ?? '900-1500',
+            'target_audience' => $feed->target_audience ?? '',
+            'enhancement_prompt' => $feed->enhancement_prompt ?? '',
+            'universal_prompt' => $feed->universal_prompt ?? ''
+        ];
+        
         if ($feed->enable_enhancement) {
-            // Queue for enhancement
-            self::add_item($feed->id, 'enhance_content', $data, 9);
+            // Use new smart content creation
+            $data['feed_settings'] = $feed_settings;
+            self::add_item($feed->id, 'create_smart_content', $data, 9);
         } elseif ($feed->enable_translation) {
             // Queue for translation
             $languages = json_decode($feed->target_languages, true) ?: [];
@@ -139,7 +155,54 @@ class RSP_Queue {
     }
     
     /**
-     * Enhance content
+     * Create smart content using new title-based analysis
+     */
+    private static function create_smart_content($feed, $data) {
+        $openai = new RSP_OpenAI();
+        
+        // Check if rate limited
+        if ($openai->is_rate_limited()) {
+            error_log('GPT-5 rate limited, will retry later');
+            return false;
+        }
+        
+        if (!$openai->is_configured()) {
+            // Skip enhancement, create post directly
+            self::add_item($feed->id, 'create_post', $data, 7);
+            return true;
+        }
+        
+        // Use new smart content creation from title
+        $enhanced = $openai->create_content_from_title(
+            $data['title'], 
+            $data['excerpt'] ?? '', 
+            $data['feed_settings']
+        );
+        
+        if ($enhanced) {
+            $data['title'] = $enhanced['title'];
+            $data['content'] = $enhanced['content'];
+            $data['enhanced'] = true;
+            $data['smart_generated'] = true; // Flag to indicate this was smart-generated
+        }
+        
+        // Check if translation is needed
+        if ($feed->enable_translation) {
+            $languages = json_decode($feed->target_languages, true) ?: [];
+            foreach ($languages as $lang) {
+                $data['target_language'] = $lang;
+                self::add_item($feed->id, 'translate_content', $data, 8);
+            }
+        } else {
+            // Queue for post creation
+            self::add_item($feed->id, 'create_post', $data, 7);
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Enhance content (legacy method for backwards compatibility)
      */
     private static function enhance_content($feed, $data) {
         $openai = new RSP_OpenAI();
@@ -246,9 +309,24 @@ class RSP_Queue {
         update_post_meta($post_id, '_rsp_feed_id', $feed->id);
         update_post_meta($post_id, '_rsp_source_url', $data['link']);
         update_post_meta($post_id, '_rsp_enhanced', isset($data['enhanced']) ? 'yes' : 'no');
+        update_post_meta($post_id, '_rsp_smart_generated', isset($data['smart_generated']) ? 'yes' : 'no');
+        
+        // Store feed settings used for this post
+        if (isset($data['feed_settings'])) {
+            update_post_meta($post_id, '_rsp_feed_settings', $data['feed_settings']);
+        }
         
         if (isset($data['language'])) {
             update_post_meta($post_id, '_rsp_language', $data['language']);
+        }
+        
+        // Store content domain and angle
+        if (isset($feed->content_domain)) {
+            update_post_meta($post_id, '_rsp_content_domain', $feed->content_domain);
+        }
+        
+        if (isset($feed->content_angle)) {
+            update_post_meta($post_id, '_rsp_content_angle', $feed->content_angle);
         }
         
         // Extract and set featured image
