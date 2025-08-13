@@ -2,7 +2,7 @@
 /**
  * OpenAI GPT-5 Integration for RSS Auto Publisher
  * Uses the /v1/chat/completions endpoint with GPT-5
- * Version 1.1.3 - Fixed parameters and added better error handling
+ * Version 1.2.0 - Fixed response parsing for different API formats
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -15,7 +15,7 @@ class RSP_OpenAI {
     private $api_key;
     private $model = 'gpt-5'; // Fixed to GPT-5 (latest flagship model)
     private $api_url = 'https://api.openai.com/v1/chat/completions';
-    private $debug_mode = false; // Set to true only for debugging
+    private $debug_mode = true; // TEMPORARILY ENABLED FOR DEBUGGING
     
     /**
      * Model pricing per 1M tokens
@@ -45,7 +45,7 @@ class RSP_OpenAI {
     public function __construct() {
         $this->api_key = get_option('rsp_openai_api_key');
         // Enable debug mode based on WP_DEBUG or specific option
-        $this->debug_mode = (defined('WP_DEBUG') && WP_DEBUG) || get_option('rsp_debug_mode', false);
+        $this->debug_mode = true; // FORCE ENABLED FOR DEBUGGING
     }
     
     /**
@@ -127,38 +127,25 @@ class RSP_OpenAI {
         $domain_instructions = $this->get_domain_instructions($domain, $analysis['gambling_category']);
         $angle_instructions = $this->get_angle_instructions($angle);
         
+        // REDUCED SCOPE TO FIT IN TOKEN LIMITS
         $prompt = "
-        Create an original, comprehensive article based on this title: '{$title}'
+        Create a comprehensive article based on this title: '{$title}'
         
-        CONTENT SPECIFICATIONS:
-        - Content Type: {$domain}" . ($analysis['gambling_category'] ? " ({$analysis['gambling_category']})" : "") . "
-        - Writing Style: {$angle_instructions}
-        - Target Length: {$length} words
-        - Target Audience: " . ($audience ?: 'General readers interested in ' . $domain) . "
-        
-        SEO REQUIREMENTS:
-        - Focus Keywords: {$keywords} (use naturally throughout)
-        - Include engaging subheadings (H2, H3 tags)
-        - Write for featured snippets (include FAQ section)
-        - Use bullet points and numbered lists where appropriate
-        - Include specific numbers, statistics, and data points
-        - Create scannable content with clear structure
+        Target Length: {$length} words
+        Writing Style: {$angle_instructions}
+        Keywords: {$keywords}
         
         {$domain_instructions}
         
-        CONTENT STRUCTURE:
-        1. Engaging introduction (hook + preview of what readers will learn)
-        2. Main content sections with clear, benefit-focused subheadings
-        3. Practical tips or actionable advice section
-        4. FAQ section (3-5 common questions with concise answers)
-        5. Conclusion with key takeaways and call-to-action
+        Structure:
+        1. Engaging introduction
+        2. 3-4 main content sections with subheadings
+        3. Practical tips section
+        4. Brief FAQ (2-3 questions)
+        5. Conclusion
         
-        " . ($custom_prompt ? "ADDITIONAL INSTRUCTIONS: {$custom_prompt}" : "") . "
-        
-        Return as JSON with 'title' and 'content' fields.
-        Create a new, SEO-friendly title that's more engaging and specific than the original.
-        Make the content genuinely helpful and valuable to readers.
-        Format the content with proper HTML tags including <h2>, <h3>, <p>, <ul>, <li> tags.
+        Return as JSON: {\"title\": \"SEO-optimized title\", \"content\": \"Full HTML article\"}
+        Keep the response concise and within token limits.
         ";
         
         return $prompt;
@@ -346,6 +333,7 @@ class RSP_OpenAI {
      * Call OpenAI GPT-5 API using /v1/chat/completions endpoint
      * FIXED: Using max_completion_tokens instead of max_tokens
      * FIXED: Temperature must be 1 for GPT-5
+     * FIXED: Multiple response format handling
      */
     private function call_api($messages) {
         $headers = [
@@ -358,7 +346,7 @@ class RSP_OpenAI {
             'model' => $this->model,
             'messages' => $messages,
             // Temperature parameter removed - let GPT-5 use its default
-            'max_completion_tokens' => 4000, // FIXED: Changed from max_tokens
+            'max_completion_tokens' => 2500, // Reduced to ensure complete JSON response
             'response_format' => [
                 'type' => 'json_object'
             ]
@@ -406,8 +394,11 @@ class RSP_OpenAI {
             return false;
         }
         
+        // Log first 1KB of response for debugging
+        $this->debug_log("First 1KB of raw response: " . substr($response_body, 0, 1024));
+        
         if ($response_code !== 200) {
-            $this->debug_log("Non-200 response: " . substr($response_body, 0, 1000));
+            $this->debug_log("Non-200 response code: " . $response_code);
             error_log('RSS Auto Publisher: Non-200 response code: ' . $response_code);
         }
         
@@ -417,10 +408,13 @@ class RSP_OpenAI {
         if (!$data) {
             $json_error = json_last_error_msg();
             $this->debug_log("JSON decode error: " . $json_error);
-            $this->debug_log("First 500 chars of response: " . substr($response_body, 0, 500));
+            $this->debug_log("Raw response for debugging: " . $response_body);
             error_log('RSS Auto Publisher: Failed to decode API response - ' . $json_error);
             return false;
         }
+        
+        // Log the structure for debugging
+        $this->debug_log("Top-level JSON keys: " . json_encode(array_keys($data)));
         
         // Check for errors
         if (isset($data['error'])) {
@@ -441,15 +435,73 @@ class RSP_OpenAI {
             return false;
         }
         
-        // Extract the text from the GPT-5 response format
-        if (!isset($data['choices'][0]['message']['content'])) {
-            $this->debug_log("Unexpected response format - missing choices[0].message.content");
-            $this->debug_log("Response structure: " . json_encode(array_keys($data)));
-            if (isset($data['choices'][0])) {
-                $this->debug_log("choices[0] structure: " . json_encode(array_keys($data['choices'][0])));
+        // COMPREHENSIVE RESPONSE EXTRACTION - Try multiple formats
+        $content = null;
+        
+        // 1. Standard Chat Completions format
+        if (isset($data['choices'][0]['message']['content'])) {
+            $this->debug_log("Found content in choices[0].message.content");
+            $content = $data['choices'][0]['message']['content'];
+        }
+        // 2. Responses API convenience format
+        elseif (isset($data['output_text'])) {
+            $this->debug_log("Found content in output_text");
+            $content = $data['output_text'];
+        }
+        // 3. Responses API verbose format
+        elseif (isset($data['output'])) {
+            $this->debug_log("Found output array, attempting to extract text");
+            $text_parts = [];
+            
+            if (is_array($data['output'])) {
+                foreach ($data['output'] as $segment) {
+                    if (isset($segment['content'])) {
+                        foreach ($segment['content'] as $content_item) {
+                            if (isset($content_item['text'])) {
+                                $text_parts[] = $content_item['text'];
+                            }
+                        }
+                    }
+                    // Also check direct text field
+                    if (isset($segment['text'])) {
+                        $text_parts[] = $segment['text'];
+                    }
+                }
             }
-            error_log('RSS Auto Publisher: Unexpected response format from API');
-            return false;
+            
+            $content = implode('', $text_parts);
+            $this->debug_log("Extracted " . count($text_parts) . " text segments from output array");
+        }
+        // 4. Direct content field (some APIs)
+        elseif (isset($data['content'])) {
+            $this->debug_log("Found content in direct content field");
+            $content = $data['content'];
+        }
+        // 5. Result field (alternative format)
+        elseif (isset($data['result'])) {
+            $this->debug_log("Found content in result field");
+            $content = $data['result'];
+        }
+        
+        // Log what we found
+        if ($content !== null) {
+            $this->debug_log("Successfully extracted content, length: " . strlen($content));
+            
+            // Log finish reason if available
+            if (isset($data['choices'][0]['finish_reason'])) {
+                $this->debug_log("Finish reason: " . $data['choices'][0]['finish_reason']);
+            }
+        } else {
+            $this->debug_log("ERROR: Could not extract content from response");
+            $this->debug_log("Full response structure: " . json_encode($data));
+            
+            // Log all available keys at different levels for debugging
+            if (isset($data['choices']) && is_array($data['choices']) && !empty($data['choices'])) {
+                $this->debug_log("choices[0] keys: " . json_encode(array_keys($data['choices'][0])));
+                if (isset($data['choices'][0]['message'])) {
+                    $this->debug_log("choices[0].message keys: " . json_encode(array_keys($data['choices'][0]['message'])));
+                }
+            }
         }
         
         // Record usage for cost tracking
@@ -459,9 +511,7 @@ class RSP_OpenAI {
                            ", Output: " . ($data['usage']['completion_tokens'] ?? 0));
         }
         
-        $content = $data['choices'][0]['message']['content'];
-        $this->debug_log("Successfully received response, content length: " . strlen($content));
-        
+        // Return the extracted content (or null if not found)
         return $content;
     }
     
@@ -469,22 +519,30 @@ class RSP_OpenAI {
      * Parse JSON response from GPT-5
      */
     private function parse_json_response($text) {
+        if (empty($text)) {
+            $this->debug_log("Empty text provided to parse_json_response");
+            return false;
+        }
+        
         // Try to parse as JSON first
         $decoded = json_decode($text, true);
         
         if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
+            $this->debug_log("Successfully parsed JSON response");
             return $decoded;
         }
         
         // Log JSON error if debug mode
         if ($this->debug_mode && json_last_error() !== JSON_ERROR_NONE) {
             $this->debug_log("JSON parse error: " . json_last_error_msg());
+            $this->debug_log("Attempting fallback parsing methods");
         }
         
         // Fallback: extract JSON from text if wrapped in markdown or other formatting
         if (preg_match('/```json\s*(.+?)\s*```/s', $text, $matches)) {
             $decoded = json_decode($matches[1], true);
             if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
+                $this->debug_log("Successfully parsed JSON from code block");
                 return $decoded;
             }
         }
@@ -493,12 +551,13 @@ class RSP_OpenAI {
         if (preg_match('/\{[^}]*"title"[^}]*"content"[^}]*\}/s', $text, $matches)) {
             $decoded = json_decode($matches[0], true);
             if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
+                $this->debug_log("Successfully parsed JSON from text pattern");
                 return $decoded;
             }
         }
         
         // Use fallback parser if JSON parsing fails
-        $this->debug_log("Using fallback parser for response");
+        $this->debug_log("All JSON parsing failed, using fallback parser");
         return $this->parse_enhancement_response($text);
     }
     
@@ -526,6 +585,8 @@ class RSP_OpenAI {
             $result['title'] = trim($lines[0]);
             $result['content'] = isset($lines[1]) ? trim($lines[1]) : '';
         }
+        
+        $this->debug_log("Fallback parser result - Title: " . substr($result['title'], 0, 50) . ", Content length: " . strlen($result['content']));
         
         return $result;
     }
