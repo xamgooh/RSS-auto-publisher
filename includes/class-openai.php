@@ -2,7 +2,7 @@
 /**
  * OpenAI GPT-5 Integration for RSS Auto Publisher
  * Uses the /v1/chat/completions endpoint with GPT-5
- * Version 1.1.2 - Fixed max_completion_tokens and temperature parameters
+ * Version 1.1.3 - Fixed parameters and added better error handling
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -15,6 +15,7 @@ class RSP_OpenAI {
     private $api_key;
     private $model = 'gpt-5'; // Fixed to GPT-5 (latest flagship model)
     private $api_url = 'https://api.openai.com/v1/chat/completions';
+    private $debug_mode = false; // Set to true only for debugging
     
     /**
      * Model pricing per 1M tokens
@@ -43,6 +44,17 @@ class RSP_OpenAI {
      */
     public function __construct() {
         $this->api_key = get_option('rsp_openai_api_key');
+        // Enable debug mode based on WP_DEBUG or specific option
+        $this->debug_mode = (defined('WP_DEBUG') && WP_DEBUG) || get_option('rsp_debug_mode', false);
+    }
+    
+    /**
+     * Debug logging helper
+     */
+    private function debug_log($message) {
+        if ($this->debug_mode) {
+            error_log('RSS Auto Publisher: ' . $message);
+        }
     }
     
     /**
@@ -63,7 +75,10 @@ class RSP_OpenAI {
      * Enhanced content creation using title analysis
      */
     public function create_content_from_title($title, $description, $feed_settings) {
+        $this->debug_log("Creating content from title: {$title}");
+        
         if (!$this->is_configured()) {
+            $this->debug_log("API not configured");
             return false;
         }
         
@@ -87,12 +102,16 @@ class RSP_OpenAI {
         ];
         
         // GPT-5 requires temperature = 1 (default)
-        $response = $this->call_api($messages, 1);
+        $response = $this->call_api($messages);
         if (!$response) {
+            $this->debug_log("API call failed for content creation");
             return false;
         }
         
         $parsed = $this->parse_json_response($response);
+        if ($parsed && isset($parsed['title']) && isset($parsed['content'])) {
+            $this->debug_log("Content successfully created - Title: " . substr($parsed['title'], 0, 50) . "...");
+        }
         return $parsed;
     }
     
@@ -139,6 +158,7 @@ class RSP_OpenAI {
         Return as JSON with 'title' and 'content' fields.
         Create a new, SEO-friendly title that's more engaging and specific than the original.
         Make the content genuinely helpful and valuable to readers.
+        Format the content with proper HTML tags including <h2>, <h3>, <p>, <ul>, <li> tags.
         ";
         
         return $prompt;
@@ -207,8 +227,8 @@ class RSP_OpenAI {
         // Build the enhancement input with role-based messages
         $messages = $this->build_enhancement_input($title, $content, $options);
         
-        // Make API call - GPT-5 requires temperature = 1
-        $response = $this->call_api($messages, 1);
+        // Make API call
+        $response = $this->call_api($messages);
         
         if (!$response) {
             return false;
@@ -242,8 +262,8 @@ class RSP_OpenAI {
             ]
         ];
         
-        // Make API call - GPT-5 requires temperature = 1 (not 0.3)
-        $response = $this->call_api($messages, 1);
+        // Make API call
+        $response = $this->call_api($messages);
         
         if (!$response) {
             return false;
@@ -327,10 +347,7 @@ class RSP_OpenAI {
      * FIXED: Using max_completion_tokens instead of max_tokens
      * FIXED: Temperature must be 1 for GPT-5
      */
-    private function call_api($messages, $temperature = 1) {
-        // GPT-5 only supports temperature = 1
-        $temperature = 1;
-        
+    private function call_api($messages) {
         $headers = [
             'Authorization' => 'Bearer ' . $this->api_key,
             'Content-Type' => 'application/json',
@@ -340,46 +357,59 @@ class RSP_OpenAI {
         $body = [
             'model' => $this->model,
             'messages' => $messages,
-            'temperature' => 1, // FIXED: GPT-5 only accepts temperature = 1
+            // Temperature parameter removed - let GPT-5 use its default
             'max_completion_tokens' => 4000, // FIXED: Changed from max_tokens
             'response_format' => [
                 'type' => 'json_object'
             ]
         ];
         
+        $this->debug_log("Making API call to GPT-5");
+        
         $response = wp_remote_post($this->api_url, [
             'headers' => $headers,
             'body' => json_encode($body),
-            'timeout' => 90, // Increased timeout for GPT-5
+            'timeout' => 120, // Increased timeout for GPT-5
         ]);
         
         if (is_wp_error($response)) {
-            error_log('RSS Auto Publisher API Error: ' . $response->get_error_message());
+            $error_message = $response->get_error_message();
+            $this->debug_log("WP Error: " . $error_message);
+            error_log('RSS Auto Publisher API Error: ' . $error_message);
             return false;
         }
         
         $response_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
         
+        $this->debug_log("API Response Code: " . $response_code);
+        
+        if ($response_code !== 200) {
+            $this->debug_log("Non-200 response: " . substr($response_body, 0, 500));
+        }
+        
         $data = json_decode($response_body, true);
         
         if (!$data) {
+            $this->debug_log("Failed to decode JSON response");
             error_log('RSS Auto Publisher: Failed to decode API response');
             return false;
         }
         
         // Check for errors
         if (isset($data['error'])) {
-            error_log('RSS Auto Publisher API Error: ' . json_encode($data['error']));
+            $error_msg = json_encode($data['error']);
+            $this->debug_log("API Error: " . $error_msg);
+            error_log('RSS Auto Publisher API Error: ' . $error_msg);
             
             // Check for rate limit errors
             if ($response_code === 429) {
                 $this->handle_rate_limit($data['error']);
             }
             
-            // Special handling for parameter errors (in case API changes again)
+            // Special handling for parameter errors
             if (isset($data['error']['param'])) {
-                error_log('RSS Auto Publisher: Parameter issue with ' . $data['error']['param']);
+                $this->debug_log("Parameter issue with: " . $data['error']['param'] . " - " . ($data['error']['message'] ?? ''));
             }
             
             return false;
@@ -387,6 +417,7 @@ class RSP_OpenAI {
         
         // Extract the text from the GPT-5 response format
         if (!isset($data['choices'][0]['message']['content'])) {
+            $this->debug_log("Unexpected response format - missing choices[0].message.content");
             error_log('RSS Auto Publisher: Unexpected response format from API');
             return false;
         }
@@ -394,9 +425,14 @@ class RSP_OpenAI {
         // Record usage for cost tracking
         if (isset($data['usage'])) {
             $this->record_usage($data['usage']);
+            $this->debug_log("Tokens used - Input: " . ($data['usage']['prompt_tokens'] ?? 0) . 
+                           ", Output: " . ($data['usage']['completion_tokens'] ?? 0));
         }
         
-        return $data['choices'][0]['message']['content'];
+        $content = $data['choices'][0]['message']['content'];
+        $this->debug_log("Successfully received response, content length: " . strlen($content));
+        
+        return $content;
     }
     
     /**
@@ -408,6 +444,11 @@ class RSP_OpenAI {
         
         if ($decoded && isset($decoded['title']) && isset($decoded['content'])) {
             return $decoded;
+        }
+        
+        // Log JSON error if debug mode
+        if ($this->debug_mode && json_last_error() !== JSON_ERROR_NONE) {
+            $this->debug_log("JSON parse error: " . json_last_error_msg());
         }
         
         // Fallback: extract JSON from text if wrapped in markdown or other formatting
@@ -427,6 +468,7 @@ class RSP_OpenAI {
         }
         
         // Use fallback parser if JSON parsing fails
+        $this->debug_log("Using fallback parser for response");
         return $this->parse_enhancement_response($text);
     }
     
@@ -466,6 +508,7 @@ class RSP_OpenAI {
         $retry_after = isset($error['retry_after']) ? intval($error['retry_after']) : 60;
         set_transient('rsp_rate_limited', true, $retry_after);
         
+        $this->debug_log("Rate limited - retry after {$retry_after} seconds");
         error_log("RSS Auto Publisher: GPT-5 Rate Limited - Retry after {$retry_after} seconds");
         
         // Send admin notification
