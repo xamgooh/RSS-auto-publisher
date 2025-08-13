@@ -2,7 +2,7 @@
 /**
  * OpenAI GPT-5 Integration for RSS Auto Publisher
  * Uses the /v1/chat/completions endpoint with GPT-5
- * Version 1.1.1 - Fixed max_completion_tokens parameter
+ * Version 1.1.2 - Fixed max_completion_tokens and temperature parameters
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -86,7 +86,8 @@ class RSP_OpenAI {
             ]
         ];
         
-        $response = $this->call_api($messages);
+        // GPT-5 requires temperature = 1 (default)
+        $response = $this->call_api($messages, 1);
         if (!$response) {
             return false;
         }
@@ -206,8 +207,8 @@ class RSP_OpenAI {
         // Build the enhancement input with role-based messages
         $messages = $this->build_enhancement_input($title, $content, $options);
         
-        // Make API call
-        $response = $this->call_api($messages);
+        // Make API call - GPT-5 requires temperature = 1
+        $response = $this->call_api($messages, 1);
         
         if (!$response) {
             return false;
@@ -241,8 +242,8 @@ class RSP_OpenAI {
             ]
         ];
         
-        // Make API call
-        $response = $this->call_api($messages, 0.3); // Lower temperature for translation
+        // Make API call - GPT-5 requires temperature = 1 (not 0.3)
+        $response = $this->call_api($messages, 1);
         
         if (!$response) {
             return false;
@@ -324,18 +325,22 @@ class RSP_OpenAI {
     /**
      * Call OpenAI GPT-5 API using /v1/chat/completions endpoint
      * FIXED: Using max_completion_tokens instead of max_tokens
+     * FIXED: Temperature must be 1 for GPT-5
      */
-    private function call_api($messages, $temperature = 0.7) {
+    private function call_api($messages, $temperature = 1) {
+        // GPT-5 only supports temperature = 1
+        $temperature = 1;
+        
         $headers = [
             'Authorization' => 'Bearer ' . $this->api_key,
             'Content-Type' => 'application/json',
         ];
         
-        // Build request body for GPT-5 with FIXED parameter name
+        // Build request body for GPT-5 with FIXED parameters
         $body = [
             'model' => $this->model,
             'messages' => $messages,
-            'temperature' => $temperature,
+            'temperature' => 1, // FIXED: GPT-5 only accepts temperature = 1
             'max_completion_tokens' => 4000, // FIXED: Changed from max_tokens
             'response_format' => [
                 'type' => 'json_object'
@@ -373,8 +378,8 @@ class RSP_OpenAI {
             }
             
             // Special handling for parameter errors (in case API changes again)
-            if (isset($data['error']['param']) && $data['error']['param'] === 'max_completion_tokens') {
-                error_log('RSS Auto Publisher: max_completion_tokens parameter issue detected');
+            if (isset($data['error']['param'])) {
+                error_log('RSS Auto Publisher: Parameter issue with ' . $data['error']['param']);
             }
             
             return false;
