@@ -180,7 +180,7 @@ class RSP_Admin {
                                     <input type="checkbox" name="enable_enhancement" id="enable_enhancement" value="1" checked>
                                     <?php _e('Enable GPT-5 content enhancement', 'rss-auto-publisher'); ?>
                                 </label>
-                                <p class="description"><?php _e('Uses OpenAI GPT-5 to rewrite and improve content', 'rss-auto-publisher'); ?></p>
+                                <p class="description"><?php _e('Creates full articles from RSS titles using OpenAI GPT-5', 'rss-auto-publisher'); ?></p>
                             </td>
                         </tr>
                         
@@ -288,8 +288,8 @@ class RSP_Admin {
                         <tr>
                             <th><label for="min_word_count"><?php _e('Min Word Count', 'rss-auto-publisher'); ?></label></th>
                             <td>
-                                <input type="number" name="min_word_count" id="min_word_count" value="300" min="50" max="5000">
-                                <p class="description"><?php _e('Skip items with fewer words', 'rss-auto-publisher'); ?></p>
+                                <input type="number" name="min_word_count" id="min_word_count" value="10" min="5" max="5000">
+                                <p class="description"><?php _e('Skip items with fewer words (ignored when AI enhancement is enabled)', 'rss-auto-publisher'); ?></p>
                             </td>
                         </tr>
                         
@@ -436,7 +436,12 @@ class RSP_Admin {
                             
                             <div class="feed-meta-item">
                                 <span class="meta-label"><?php _e('Min Words:', 'rss-auto-publisher'); ?></span>
-                                <span class="meta-value"><?php echo $feed->min_word_count; ?></span>
+                                <span class="meta-value">
+                                    <?php echo $feed->min_word_count; ?>
+                                    <?php if ($feed->enable_enhancement): ?>
+                                        <small style="color: #666;">(AI bypass)</small>
+                                    <?php endif; ?>
+                                </span>
                             </div>
                             
                             <div class="feed-meta-item">
@@ -557,7 +562,8 @@ class RSP_Admin {
                         <tr>
                             <th><label for="min_word_count"><?php _e('Default Min Word Count', 'rss-auto-publisher'); ?></label></th>
                             <td>
-                                <input type="number" name="min_word_count" id="min_word_count" value="<?php echo get_option('rsp_min_word_count', 300); ?>" min="50" max="5000">
+                                <input type="number" name="min_word_count" id="min_word_count" value="<?php echo get_option('rsp_min_word_count', 10); ?>" min="5" max="5000">
+                                <p class="description"><?php _e('For feeds without AI enhancement enabled', 'rss-auto-publisher'); ?></p>
                             </td>
                         </tr>
                         
