@@ -1,7 +1,7 @@
 <?php
 /**
  * OpenAI GPT-5 Integration for RSS Auto Publisher
- * Version 3.0.0 - Properly implemented GPT-5 Responses API
+ * Version 4.0.0 - Per-feed model support
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -12,16 +12,26 @@ class RSP_OpenAI {
      * API configuration
      */
     private $api_key;
-    private $model = 'gpt-5'; // Valid GPT-5 model
+    private $model = 'gpt-5'; // Default model
     private $responses_api_url = 'https://api.openai.com/v1/responses'; // GPT-5 Responses API
     private $chat_api_url = 'https://api.openai.com/v1/chat/completions'; // Fallback
     
     /**
-     * Model pricing per 1M tokens (GPT-5 actual pricing)
+     * Model pricing per 1M tokens (GPT-5 pricing)
      */
     private $pricing = [
-        'input' => 15.00,
-        'output' => 60.00
+        'gpt-5' => [
+            'input' => 15.00,
+            'output' => 60.00
+        ],
+        'gpt-5-mini' => [
+            'input' => 3.00,
+            'output' => 12.00
+        ],
+        'gpt-5-nano' => [
+            'input' => 0.60,
+            'output' => 2.40
+        ]
     ];
     
     /**
@@ -45,6 +55,15 @@ class RSP_OpenAI {
     }
     
     /**
+     * Set model for this instance
+     */
+    public function set_model($model) {
+        if (in_array($model, ['gpt-5', 'gpt-5-mini', 'gpt-5-nano'])) {
+            $this->model = $model;
+        }
+    }
+    
+    /**
      * Check if API is configured
      */
     public function is_configured() {
@@ -59,7 +78,7 @@ class RSP_OpenAI {
     }
     
     /**
-     * Create content using GPT-5 Responses API
+     * Create content using GPT-5 Responses API with per-feed model
      */
     public function create_content_from_title($title, $description, $feed_settings) {
         if (!$this->is_configured()) {
@@ -67,12 +86,17 @@ class RSP_OpenAI {
             return false;
         }
         
+        // Use model from feed settings if provided
+        if (!empty($feed_settings['gpt5_model'])) {
+            $this->set_model($feed_settings['gpt5_model']);
+        }
+        
         // Analyze the content
         $analyzer = new RSP_Content_Analyzer();
         $analysis = $analyzer->analyze_content($title, $description, $feed_settings);
         
         // Use GPT-5 Responses API first
-        $use_responses_api = get_option('rsp_use_gpt5_responses_api', 'yes') === 'yes';
+        $use_responses_api = get_option('rsp_use_responses_api', 'yes') === 'yes';
         
         if ($use_responses_api) {
             $response = $this->call_gpt5_responses_api($title, $description, $analysis, $feed_settings);
@@ -89,9 +113,9 @@ class RSP_OpenAI {
         // Validate content length and regenerate if needed
         if ($response && isset($response['content'])) {
             $word_count = str_word_count(strip_tags($response['content']));
-            $min_words = $feed_settings['min_article_words'] ?? 1200;
+            $min_words = $feed_settings['min_article_words'] ?? 1500;
             
-            if ($word_count < $min_words) {
+            if ($word_count < $min_words && get_option('rsp_enable_content_validation', 1)) {
                 error_log("RSS Auto Publisher: Content too short ({$word_count} words), regenerating with high verbosity...");
                 // Retry with maximum verbosity
                 $feed_settings['force_high_verbosity'] = true;
@@ -355,11 +379,6 @@ ARTICLE STRUCTURE TO FOLLOW (but don't label these in output):
    - Strong call to action
    - Future outlook
 
-EXAMPLE OF NATURAL HEADINGS:
-Instead of 'INTRODUCTION', use something like 'Understanding [Topic]'
-Instead of 'MAIN SECTION 1', use 'How [Topic] Works'
-Instead of 'PRACTICAL APPLICATIONS', use 'Implementing [Topic] Successfully'
-
 FORMAT YOUR RESPONSE AS:
 {
   \"title\": \"[SEO-optimized title, 60-70 characters]\",
@@ -380,30 +399,6 @@ REMEMBER:
         if (!empty($settings['enhancement_prompt'])) {
             $prompt .= "\n\nCustom requirements: " . $settings['enhancement_prompt'];
         }
-        
-        // Add example of good formatting
-        $prompt .= "\n\nEXAMPLE OF GOOD OUTPUT STRUCTURE (content only, no labels):
-        
-<h2>Understanding Fantasy Football Fixture Difficulty</h2>
-<p>When it comes to Fantasy Premier League success, <strong>fixture difficulty ratings</strong> are your secret weapon...</p>
-
-<h2>How Fixture Ratings Transform Your FPL Strategy</h2>
-<p>The concept is simple but powerful...</p>
-<ul>
-<li><strong>Home advantage:</strong> Teams typically perform 15-20% better at home</li>
-<li><strong>Form metrics:</strong> Recent performance weighted over season average</li>
-</ul>
-
-<table>
-<tr><th>Rating</th><th>Difficulty</th><th>Example Opponents</th></tr>
-<tr><td>1</td><td>Very Easy</td><td>Newly promoted teams</td></tr>
-</table>
-
-<h2>Frequently Asked Questions</h2>
-<h3>How often should I check fixture difficulty?</h3>
-<p>Weekly reviews are essential because...</p>
-
-DO NOT include 'INTRODUCTION:', 'MAIN PART 1:', 'FAQ SECTION:' or similar labels.";
         
         return $prompt;
     }
@@ -705,9 +700,9 @@ Content: {$content}";
     }
     
     /**
-     * Record API usage
+     * Record API usage with per-model pricing
      */
-    private function record_usage($usage_data) {
+    private function record_usage($usage_data, $feed_id = null) {
         if (!isset($usage_data['usage'])) {
             return;
         }
@@ -717,15 +712,17 @@ Content: {$content}";
         $input_tokens = $usage['prompt_tokens'] ?? $usage['input_tokens'] ?? 0;
         $output_tokens = $usage['completion_tokens'] ?? $usage['output_tokens'] ?? 0;
         
-        // Calculate cost
-        $cost = ($input_tokens / 1000000) * $this->pricing['input'];
-        $cost += ($output_tokens / 1000000) * $this->pricing['output'];
+        // Calculate cost based on model
+        $model_pricing = $this->pricing[$this->model] ?? $this->pricing['gpt-5'];
+        $cost = ($input_tokens / 1000000) * $model_pricing['input'];
+        $cost += ($output_tokens / 1000000) * $model_pricing['output'];
         
         // Record in database
         RSP_Database::record_api_usage('openai-gpt5', 'responses', $total_tokens, $cost, true, [
             'input_tokens' => $input_tokens,
             'output_tokens' => $output_tokens,
-            'model' => $this->model
+            'model' => $this->model,
+            'feed_id' => $feed_id
         ]);
     }
     
@@ -768,7 +765,7 @@ Content: {$content}";
                 'custom_tools' => true,
                 'minimal_reasoning' => true
             ],
-            'pricing' => $this->pricing
+            'pricing' => $this->pricing[$this->model] ?? $this->pricing['gpt-5']
         ];
     }
 }
