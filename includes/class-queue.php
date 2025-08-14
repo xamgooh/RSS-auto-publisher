@@ -1,7 +1,7 @@
 <?php
 /**
  * Queue System for RSS Auto Publisher
- * Version 2.0.0 - GPT-5 Optimized with better error handling
+ * Version 3.0.0 - Per-feed GPT-5 model support
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -28,6 +28,12 @@ class RSP_Queue {
             return false;
         }
         
+        // Check if feed has already posted today before queuing
+        if ($type === 'process_item' && RSP_Database::has_posted_today($feed_id)) {
+            error_log('RSS Auto Publisher: Feed ' . $feed_id . ' has already posted today, not queuing');
+            return false;
+        }
+        
         $table = $wpdb->prefix . 'rsp_queue';
         
         $result = $wpdb->insert($table, [
@@ -49,7 +55,7 @@ class RSP_Queue {
         global $wpdb;
         
         $table = $wpdb->prefix . 'rsp_queue';
-        $batch_size = get_option('rsp_queue_batch_size', 3); // Reduced for GPT-5's longer processing
+        $batch_size = get_option('rsp_queue_batch_size', 2); // Reduced for GPT-5's longer processing
         
         // Get pending items
         $items = $wpdb->get_results($wpdb->prepare(
@@ -73,6 +79,7 @@ class RSP_Queue {
         global $wpdb;
         
         $table = $wpdb->prefix . 'rsp_queue';
+        $start_time = microtime(true);
         
         // Update status to processing
         $wpdb->update($table, [
@@ -93,12 +100,11 @@ class RSP_Queue {
                 throw new Exception('Feed not found for ID: ' . $item->feed_id);
             }
             
-            // Add GPT-5 specific settings to feed settings
-            $data['gpt5_settings'] = [
-                'verbosity' => 'high',
-                'reasoning_effort' => 'high',
-                'use_responses_api' => true
-            ];
+            // Double-check daily limit before processing
+            if (RSP_Database::has_posted_today($item->feed_id) && 
+                in_array($item->type, ['process_item', 'create_post'])) {
+                throw new Exception('Feed has already posted today');
+            }
             
             switch ($item->type) {
                 case 'process_item':
@@ -107,10 +113,6 @@ class RSP_Queue {
                     
                 case 'create_smart_content':
                     $success = self::create_smart_content_gpt5($feed, $data);
-                    break;
-                    
-                case 'enhance_content':
-                    $success = self::enhance_content_gpt5($feed, $data);
                     break;
                     
                 case 'translate_content':
@@ -127,41 +129,61 @@ class RSP_Queue {
             error_log('RSS Auto Publisher Queue Error: ' . $error_message);
         }
         
+        $end_time = microtime(true);
+        $processing_time = round($end_time - $start_time, 2);
+        
         // Update queue item status
         if ($success) {
+            // Delete successful item
             $wpdb->delete($table, ['id' => $item->id]);
+            
+            error_log('RSS Auto Publisher: Successfully processed queue item ' . $item->id . ' in ' . $processing_time . 's');
         } else {
-            $status = ($item->attempts >= $item->max_attempts) ? 'failed' : 'pending';
+            $status = ($item->attempts >= $item->max_attempts - 1) ? 'failed' : 'pending';
             
             $wpdb->update($table, [
                 'status' => $status,
-                'error_message' => $error_message
+                'error_message' => $error_message,
+                'processing_time' => $processing_time
             ], ['id' => $item->id]);
+            
+            if ($status === 'failed') {
+                // Update feed with error
+                RSP_Database::update_feed($item->feed_id, [
+                    'last_error' => $error_message,
+                    'last_error_date' => current_time('mysql')
+                ]);
+            }
         }
     }
     
     /**
-     * Process feed item
+     * Process feed item with per-feed settings
      */
     private static function process_feed_item($feed, $data) {
-        // Load feed settings with GPT-5 optimizations
+        // Load feed-specific settings
         $feed_settings = [
+            // GPT-5 model settings from feed
+            'gpt5_model' => $feed->gpt5_model ?? 'gpt-5',
+            'gpt5_verbosity' => $feed->gpt5_verbosity ?? 'high',
+            'gpt5_reasoning' => $feed->gpt5_reasoning ?? 'medium',
+            'content_length' => $feed->content_length ?? '1500-2500',
+            'min_article_words' => $feed->min_article_words ?? 1500,
+            
+            // Content settings from feed
             'content_domain' => $feed->content_domain ?? 'auto',
             'content_angle' => $feed->content_angle ?? 'auto',
             'seo_focus' => $feed->seo_focus ?? 'informational',
             'target_keywords' => $feed->target_keywords ?? '',
-            'content_length' => $feed->content_length ?? '1200-2000', // Increased default
             'target_audience' => $feed->target_audience ?? '',
             'enhancement_prompt' => $feed->enhancement_prompt ?? '',
-            'universal_prompt' => $feed->universal_prompt ?? '',
-            'gpt5_verbosity' => 'high', // Force high verbosity for articles
-            'gpt5_reasoning' => 'high'   // High reasoning for quality
+            'universal_prompt' => $feed->universal_prompt ?? ''
         ];
         
         $data['feed_settings'] = $feed_settings;
         
         if ($feed->enable_enhancement) {
-            // Use GPT-5 optimized content creation
+            // Use GPT-5 content creation
             self::add_item($feed->id, 'create_smart_content', $data, 9);
         } elseif ($feed->enable_translation) {
             // Queue for translation
@@ -179,10 +201,13 @@ class RSP_Queue {
     }
     
     /**
-     * Create smart content using GPT-5 optimized approach
+     * Create smart content using GPT-5 with per-feed model
      */
     private static function create_smart_content_gpt5($feed, $data) {
         $openai = new RSP_OpenAI();
+        
+        // Set the model for this specific feed
+        $openai->set_model($feed->gpt5_model ?? 'gpt-5');
         
         // Check if rate limited
         if ($openai->is_rate_limited()) {
@@ -196,10 +221,15 @@ class RSP_Queue {
             return true;
         }
         
-        // Ensure we have proper settings for GPT-5
-        $data['feed_settings']['gpt5_verbosity'] = 'high';
-        $data['feed_settings']['gpt5_reasoning'] = 'high';
-        $data['feed_settings']['min_words'] = 1200; // Minimum word count
+        // Ensure we use feed-specific settings
+        $data['feed_settings']['gpt5_model'] = $feed->gpt5_model ?? 'gpt-5';
+        $data['feed_settings']['gpt5_verbosity'] = $feed->gpt5_verbosity ?? 'high';
+        $data['feed_settings']['gpt5_reasoning'] = $feed->gpt5_reasoning ?? 'medium';
+        $data['feed_settings']['min_article_words'] = $feed->min_article_words ?? 1500;
+        $data['feed_settings']['content_length'] = $feed->content_length ?? '1500-2500';
+        
+        // Track generation time
+        $start_time = microtime(true);
         
         // Use GPT-5 optimized content creation
         $enhanced = $openai->create_content_from_title(
@@ -212,12 +242,12 @@ class RSP_Queue {
             // Validate content length
             $word_count = str_word_count(strip_tags($enhanced['content']));
             
-            if ($word_count < 800) {
+            if ($word_count < $data['feed_settings']['min_article_words']) {
                 error_log('RSS Auto Publisher: Generated content too short (' . $word_count . ' words), retrying with higher verbosity');
                 
-                // Retry with explicit high verbosity request
-                $data['feed_settings']['content_length'] = '1500-2500';
-                $data['feed_settings']['force_verbosity'] = 'high';
+                // Retry with maximum verbosity
+                $data['feed_settings']['gpt5_verbosity'] = 'high';
+                $data['feed_settings']['force_high_verbosity'] = true;
                 
                 $enhanced = $openai->create_content_from_title(
                     $data['title'], 
@@ -226,13 +256,20 @@ class RSP_Queue {
                 );
             }
             
-            if ($enhanced && str_word_count(strip_tags($enhanced['content'])) >= 800) {
+            if ($enhanced && str_word_count(strip_tags($enhanced['content'])) >= 500) {
                 $data['title'] = $enhanced['title'];
                 $data['content'] = $enhanced['content'];
                 $data['enhanced'] = true;
                 $data['smart_generated'] = true;
                 $data['gpt5_generated'] = true;
+                $data['gpt5_model'] = $feed->gpt5_model;
                 $data['word_count'] = str_word_count(strip_tags($enhanced['content']));
+                
+                // Track performance
+                $end_time = microtime(true);
+                $data['generation_time'] = round($end_time - $start_time, 2);
+                
+                error_log('RSS Auto Publisher: Generated ' . $data['word_count'] . ' words using ' . $feed->gpt5_model . ' in ' . $data['generation_time'] . 's');
             } else {
                 error_log('RSS Auto Publisher: Failed to generate adequate content length');
                 return false;
@@ -258,58 +295,13 @@ class RSP_Queue {
     }
     
     /**
-     * Enhance content with GPT-5 optimizations
-     */
-    private static function enhance_content_gpt5($feed, $data) {
-        $openai = new RSP_OpenAI();
-        
-        if ($openai->is_rate_limited()) {
-            return false;
-        }
-        
-        if (!$openai->is_configured()) {
-            self::add_item($feed->id, 'create_post', $data, 7);
-            return true;
-        }
-        
-        $options = [
-            'custom_prompt' => $feed->enhancement_prompt,
-            'verbosity' => 'high',
-            'target_length' => '1500-2000'
-        ];
-        
-        $enhanced = $openai->enhance_content(
-            $data['title'], 
-            $data['content'], 
-            $options
-        );
-        
-        if ($enhanced) {
-            $data['title'] = $enhanced['title'];
-            $data['content'] = $enhanced['content'];
-            $data['enhanced'] = true;
-            $data['gpt5_enhanced'] = true;
-        }
-        
-        // Check if translation is needed
-        if ($feed->enable_translation) {
-            $languages = json_decode($feed->target_languages, true) ?: [];
-            foreach ($languages as $lang) {
-                $data['target_language'] = $lang;
-                self::add_item($feed->id, 'translate_content', $data, 8);
-            }
-        } else {
-            self::add_item($feed->id, 'create_post', $data, 7);
-        }
-        
-        return true;
-    }
-    
-    /**
-     * Translate content
+     * Translate content with per-feed model
      */
     private static function translate_content($feed, $data, $item) {
         $openai = new RSP_OpenAI();
+        
+        // Set the model for this specific feed
+        $openai->set_model($feed->gpt5_model ?? 'gpt-5');
         
         if ($openai->is_rate_limited()) {
             return false;
@@ -355,6 +347,12 @@ class RSP_Queue {
      * Create WordPress post with enhanced metadata
      */
     private static function create_post($feed, $data) {
+        // Double-check daily limit before creating post
+        if (RSP_Database::has_posted_today($feed->id)) {
+            error_log('RSS Auto Publisher: Feed ' . $feed->id . ' has already posted today, skipping post creation');
+            return false;
+        }
+        
         // Validate content before creating post
         if (empty($data['content']) || str_word_count(strip_tags($data['content'])) < 100) {
             error_log('RSS Auto Publisher: Content too short or empty, skipping post creation');
@@ -380,11 +378,13 @@ class RSP_Queue {
         
         // Add enhanced meta data
         update_post_meta($post_id, '_rsp_feed_id', $feed->id);
-        update_post_meta($post_id, '_rsp_source_url', $data['link']);
+        update_post_meta($post_id, '_rsp_source_url', $data['link'] ?? '');
         update_post_meta($post_id, '_rsp_enhanced', isset($data['enhanced']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rsp_smart_generated', isset($data['smart_generated']) ? 'yes' : 'no');
         update_post_meta($post_id, '_rsp_gpt5_generated', isset($data['gpt5_generated']) ? 'yes' : 'no');
+        update_post_meta($post_id, '_rsp_gpt5_model', $data['gpt5_model'] ?? $feed->gpt5_model ?? 'gpt-5');
         update_post_meta($post_id, '_rsp_word_count', $data['word_count'] ?? str_word_count(strip_tags($data['content'])));
+        update_post_meta($post_id, '_rsp_generation_time', $data['generation_time'] ?? 0);
         
         if (isset($data['feed_settings'])) {
             update_post_meta($post_id, '_rsp_feed_settings', $data['feed_settings']);
@@ -401,11 +401,22 @@ class RSP_Queue {
         // Extract and set featured image
         self::set_featured_image($post_id, $data['content']);
         
-        // Mark as processed
-        RSP_Database::mark_item_processed($feed->id, $data['guid'], $post_id);
+        // Mark as processed with metadata
+        $metadata = [
+            'processing_time' => $data['generation_time'] ?? 0,
+            'word_count' => $data['word_count'] ?? str_word_count(strip_tags($data['content'])),
+            'model' => $data['gpt5_model'] ?? $feed->gpt5_model ?? 'gpt-5',
+            'enhanced' => isset($data['enhanced']) ? 1 : 0,
+            'translated' => isset($data['translated']) ? 1 : 0,
+            'verbosity' => $data['feed_settings']['gpt5_verbosity'] ?? 'high',
+            'reasoning' => $data['feed_settings']['gpt5_reasoning'] ?? 'medium',
+            'language' => $data['language'] ?? 'en'
+        ];
+        
+        RSP_Database::mark_item_processed($feed->id, $data['guid'], $post_id, $metadata);
         
         // Log success
-        error_log('RSS Auto Publisher: Successfully created post #' . $post_id . ' with ' . ($data['word_count'] ?? 'unknown') . ' words');
+        error_log('RSS Auto Publisher: Successfully created post #' . $post_id . ' for feed ' . $feed->id . ' with ' . ($data['word_count'] ?? 'unknown') . ' words');
         
         return true;
     }
@@ -434,7 +445,7 @@ class RSP_Queue {
         // Use wp_remote_get to download the image
         $response = wp_remote_get($image_url, [
             'timeout' => 30,
-            'user-agent' => 'RSS Auto Publisher/2.0'
+            'user-agent' => 'RSS Auto Publisher/3.0'
         ]);
         
         if (is_wp_error($response)) {
@@ -512,5 +523,24 @@ class RSP_Queue {
         } else {
             return $wpdb->delete($table, ['status' => $status]);
         }
+    }
+    
+    /**
+     * Get queue items for a specific feed
+     */
+    public static function get_feed_queue_items($feed_id, $status = null) {
+        global $wpdb;
+        
+        $table = $wpdb->prefix . 'rsp_queue';
+        
+        $query = $wpdb->prepare("SELECT * FROM $table WHERE feed_id = %d", $feed_id);
+        
+        if ($status) {
+            $query .= $wpdb->prepare(" AND status = %s", $status);
+        }
+        
+        $query .= " ORDER BY created_at DESC";
+        
+        return $wpdb->get_results($query);
     }
 }
