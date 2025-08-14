@@ -1,7 +1,7 @@
 <?php
 /**
  * Admin Interface for RSS Auto Publisher
- * Version 3.0.0 - GPT-5 Properly Configured
+ * Version 4.0.0 - Reorganized settings, daily limit enforced
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -91,7 +91,7 @@ class RSP_Admin {
     }
     
     /**
-     * Render feeds page
+     * Render feeds page with all per-feed settings
      */
     public function render_feeds_page() {
         $feeds = RSP_Database::get_feeds();
@@ -99,11 +99,6 @@ class RSP_Admin {
         $authors = get_users(['capability' => 'edit_posts']);
         $openai = new RSP_OpenAI();
         $languages = $openai->get_supported_languages();
-        
-        // GPT-5 settings
-        $default_verbosity = get_option('rsp_gpt5_verbosity', 'high');
-        $default_reasoning = get_option('rsp_gpt5_reasoning_effort', 'medium');
-        $default_content_length = get_option('rsp_default_content_length', '1500-2500');
         
         ?>
         <div class="wrap rsp-admin">
@@ -121,6 +116,11 @@ class RSP_Admin {
             </div>
             <?php endif; ?>
             
+            <div class="notice notice-info">
+                <p><strong><?php _e('Daily Limit:', 'rss-auto-publisher'); ?></strong> 
+                <?php _e('Each feed is limited to publishing 1 article per day to ensure quality and prevent spam.', 'rss-auto-publisher'); ?></p>
+            </div>
+            
             <div class="rsp-card">
                 <h2 id="feed-form-title"><?php _e('Add New Feed', 'rss-auto-publisher'); ?></h2>
                 
@@ -130,6 +130,12 @@ class RSP_Admin {
                     <?php wp_nonce_field('rsp_feed_action', 'rsp_nonce'); ?>
                     
                     <table class="form-table">
+                        <tr>
+                            <th colspan="2">
+                                <h3><?php _e('Basic Settings', 'rss-auto-publisher'); ?></h3>
+                            </th>
+                        </tr>
+                        
                         <tr>
                             <th><label for="feed_url"><?php _e('Feed URL', 'rss-auto-publisher'); ?></label></th>
                             <td>
@@ -182,6 +188,18 @@ class RSP_Admin {
                         </tr>
                         
                         <tr>
+                            <th><label for="update_frequency"><?php _e('Check Frequency', 'rss-auto-publisher'); ?></label></th>
+                            <td>
+                                <select name="update_frequency" id="update_frequency">
+                                    <option value="hourly"><?php _e('Hourly', 'rss-auto-publisher'); ?></option>
+                                    <option value="twicedaily"><?php _e('Twice Daily', 'rss-auto-publisher'); ?></option>
+                                    <option value="daily" selected><?php _e('Daily', 'rss-auto-publisher'); ?></option>
+                                </select>
+                                <p class="description"><?php _e('How often to check for new items (still limited to 1 post per day)', 'rss-auto-publisher'); ?></p>
+                            </td>
+                        </tr>
+                        
+                        <tr>
                             <th colspan="2">
                                 <h3><?php _e('GPT-5 Content Generation', 'rss-auto-publisher'); ?></h3>
                             </th>
@@ -199,14 +217,28 @@ class RSP_Admin {
                         </tr>
                         
                         <tr>
-                            <th><label for="gpt5_verbosity"><?php _e('GPT-5 Verbosity', 'rss-auto-publisher'); ?></label></th>
+                            <th><label for="gpt5_model"><?php _e('GPT-5 Model', 'rss-auto-publisher'); ?></label></th>
+                            <td>
+                                <select name="gpt5_model" id="gpt5_model">
+                                    <option value="gpt-5" selected><?php _e('GPT-5 (Full - Best Quality)', 'rss-auto-publisher'); ?></option>
+                                    <option value="gpt-5-mini"><?php _e('GPT-5 Mini (Faster, Lower Cost)', 'rss-auto-publisher'); ?></option>
+                                    <option value="gpt-5-nano"><?php _e('GPT-5 Nano (Fastest, Lowest Cost)', 'rss-auto-publisher'); ?></option>
+                                </select>
+                                <p class="description"><?php _e('GPT-5 Full is recommended for best article quality', 'rss-auto-publisher'); ?></p>
+                            </td>
+                        </tr>
+                        
+                        <tr>
+                            <th><label for="gpt5_verbosity"><?php _e('Verbosity', 'rss-auto-publisher'); ?></label></th>
                             <td>
                                 <select name="gpt5_verbosity" id="gpt5_verbosity">
-                                    <option value="high" selected><?php _e('High (Detailed - Recommended for Articles)', 'rss-auto-publisher'); ?></option>
+                                    <option value="low"><?php _e('Low (Concise - Not recommended for articles)', 'rss-auto-publisher'); ?></option>
                                     <option value="medium"><?php _e('Medium (Balanced)', 'rss-auto-publisher'); ?></option>
-                                    <option value="low"><?php _e('Low (Concise)', 'rss-auto-publisher'); ?></option>
+                                    <option value="high" selected><?php _e('High (Detailed - REQUIRED for full articles)', 'rss-auto-publisher'); ?></option>
                                 </select>
-                                <p class="description"><?php _e('Controls the length and detail of generated content. High verbosity is essential for complete articles.', 'rss-auto-publisher'); ?></p>
+                                <p class="description">
+                                    <strong><?php _e('IMPORTANT: Use "High" verbosity for complete articles. Low/Medium will produce shortened content.', 'rss-auto-publisher'); ?></strong>
+                                </p>
                             </td>
                         </tr>
                         
@@ -214,12 +246,33 @@ class RSP_Admin {
                             <th><label for="gpt5_reasoning"><?php _e('Reasoning Effort', 'rss-auto-publisher'); ?></label></th>
                             <td>
                                 <select name="gpt5_reasoning" id="gpt5_reasoning">
-                                    <option value="minimal"><?php _e('Minimal (Fast, simple tasks)', 'rss-auto-publisher'); ?></option>
-                                    <option value="low"><?php _e('Low (Faster)', 'rss-auto-publisher'); ?></option>
+                                    <option value="minimal"><?php _e('Minimal (Very Fast, simple tasks)', 'rss-auto-publisher'); ?></option>
+                                    <option value="low"><?php _e('Low (Fast)', 'rss-auto-publisher'); ?></option>
                                     <option value="medium" selected><?php _e('Medium (Balanced - Recommended)', 'rss-auto-publisher'); ?></option>
                                     <option value="high"><?php _e('High (Best Quality, slower)', 'rss-auto-publisher'); ?></option>
                                 </select>
                                 <p class="description"><?php _e('Higher reasoning produces better quality but takes more time and tokens', 'rss-auto-publisher'); ?></p>
+                            </td>
+                        </tr>
+                        
+                        <tr>
+                            <th><label for="content_length"><?php _e('Content Length', 'rss-auto-publisher'); ?></label></th>
+                            <td>
+                                <select name="content_length" id="content_length">
+                                    <option value="800-1200"><?php _e('Short (800-1200 words)', 'rss-auto-publisher'); ?></option>
+                                    <option value="1200-1800"><?php _e('Medium (1200-1800 words)', 'rss-auto-publisher'); ?></option>
+                                    <option value="1500-2500" selected><?php _e('Long (1500-2500 words - Recommended)', 'rss-auto-publisher'); ?></option>
+                                    <option value="2500-3500"><?php _e('Extra Long (2500-3500 words)', 'rss-auto-publisher'); ?></option>
+                                </select>
+                                <p class="description"><?php _e('Works best with High verbosity setting', 'rss-auto-publisher'); ?></p>
+                            </td>
+                        </tr>
+                        
+                        <tr>
+                            <th><label for="min_article_words"><?php _e('Minimum Article Words', 'rss-auto-publisher'); ?></label></th>
+                            <td>
+                                <input type="number" name="min_article_words" id="min_article_words" value="1500" min="500" max="5000">
+                                <p class="description"><?php _e('Articles shorter than this will trigger regeneration with higher verbosity', 'rss-auto-publisher'); ?></p>
                             </td>
                         </tr>
                         
@@ -304,27 +357,6 @@ class RSP_Admin {
                             </tr>
                             
                             <tr>
-                                <th><label for="content_length"><?php _e('Article Length', 'rss-auto-publisher'); ?></label></th>
-                                <td>
-                                    <select name="content_length" id="content_length">
-                                        <option value="800-1200"><?php _e('Short (800-1200 words)', 'rss-auto-publisher'); ?></option>
-                                        <option value="1200-1800"><?php _e('Medium (1200-1800 words)', 'rss-auto-publisher'); ?></option>
-                                        <option value="1500-2500" selected><?php _e('Long (1500-2500 words - Recommended)', 'rss-auto-publisher'); ?></option>
-                                        <option value="2500-3500"><?php _e('Extra Long (2500-3500 words)', 'rss-auto-publisher'); ?></option>
-                                    </select>
-                                    <p class="description"><?php _e('Longer articles perform better with high verbosity', 'rss-auto-publisher'); ?></p>
-                                </td>
-                            </tr>
-                            
-                            <tr>
-                                <th><label for="min_article_words"><?php _e('Minimum Words', 'rss-auto-publisher'); ?></label></th>
-                                <td>
-                                    <input type="number" name="min_article_words" id="min_article_words" value="1500" min="500" max="5000">
-                                    <p class="description"><?php _e('Regenerate if article is shorter than this', 'rss-auto-publisher'); ?></p>
-                                </td>
-                            </tr>
-                            
-                            <tr>
                                 <th><label for="target_audience"><?php _e('Target Audience', 'rss-auto-publisher'); ?></label></th>
                                 <td>
                                     <input type="text" name="target_audience" id="target_audience" 
@@ -333,39 +365,6 @@ class RSP_Admin {
                                 </td>
                             </tr>
                         </tbody>
-                        
-                        <tr>
-                            <th><label for="min_word_count"><?php _e('Min Word Count', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <input type="number" name="min_word_count" id="min_word_count" value="10" min="5" max="5000">
-                                <p class="description"><?php _e('Skip items with fewer words (ignored when AI enhancement is enabled)', 'rss-auto-publisher'); ?></p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th><label for="items_per_import"><?php _e('Items Per Import', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <select name="items_per_import" id="items_per_import">
-                                    <option value="1">1</option>
-                                    <option value="2" selected>2</option>
-                                    <option value="3">3</option>
-                                    <option value="5">5</option>
-                                    <option value="10">10</option>
-                                </select>
-                                <p class="description"><?php _e('Lower values recommended for GPT-5 due to longer processing times', 'rss-auto-publisher'); ?></p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th><label for="update_frequency"><?php _e('Update Frequency', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <select name="update_frequency" id="update_frequency">
-                                    <option value="hourly"><?php _e('Hourly', 'rss-auto-publisher'); ?></option>
-                                    <option value="twicedaily"><?php _e('Twice Daily', 'rss-auto-publisher'); ?></option>
-                                    <option value="daily"><?php _e('Daily', 'rss-auto-publisher'); ?></option>
-                                </select>
-                            </td>
-                        </tr>
                         
                         <tr>
                             <th><label for="enhancement_prompt"><?php _e('Custom Instructions', 'rss-auto-publisher'); ?></label></th>
@@ -392,14 +391,19 @@ class RSP_Admin {
             
             <?php if (!empty($feeds)): ?>
             <div class="rsp-card">
-                <h2><?php _e('Existing Feeds', 'rss-auto-publisher'); ?></h2>
+                <h2><?php _e('Existing Feeds', 'rss-auto-publisher'); ?> 
+                    <small style="font-weight: normal; color: #666;">
+                        <?php _e('(1 post per day limit per feed)', 'rss-auto-publisher'); ?>
+                    </small>
+                </h2>
                 
                 <div class="rsp-feeds-grid">
                     <?php foreach ($feeds as $feed): 
                         $category = get_term($feed->category_id);
                         $languages_array = json_decode($feed->target_languages, true) ?: [];
+                        $status = RSP_Feed_Processor::get_feed_status($feed->id);
                         
-                        // Get article count and stats for this feed
+                        // Get article count and stats
                         global $wpdb;
                         $processed_table = $wpdb->prefix . 'rsp_processed';
                         $article_count = $wpdb->get_var($wpdb->prepare(
@@ -427,6 +431,18 @@ class RSP_Admin {
                             <small><?php echo esc_html($feed->feed_url); ?></small>
                         </div>
                         
+                        <?php if ($status['posted_today']): ?>
+                        <div class="notice notice-success inline" style="margin: 10px 0; padding: 5px 10px;">
+                            <p style="margin: 0;">✅ <?php _e('Posted today', 'rss-auto-publisher'); ?>
+                            <?php if ($status['todays_post_id']): ?>
+                                - <a href="<?php echo get_edit_post_link($status['todays_post_id']); ?>" target="_blank">
+                                    <?php _e('View Post', 'rss-auto-publisher'); ?>
+                                </a>
+                            <?php endif; ?>
+                            </p>
+                        </div>
+                        <?php endif; ?>
+                        
                         <div class="feed-card-meta">
                             <div class="feed-meta-item">
                                 <span class="meta-label"><?php _e('Category:', 'rss-auto-publisher'); ?></span>
@@ -434,17 +450,22 @@ class RSP_Admin {
                             </div>
                             
                             <div class="feed-meta-item">
-                                <span class="meta-label"><?php _e('GPT-5 Mode:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-label"><?php _e('Model:', 'rss-auto-publisher'); ?></span>
                                 <span class="meta-value">
                                     <?php 
-                                    if ($feed->enable_enhancement) {
-                                        $verbosity = $feed->gpt5_verbosity ?? 'high';
-                                        echo '✓ ' . ucfirst($verbosity);
-                                    } else {
-                                        echo '✗';
-                                    }
+                                    $model_display = [
+                                        'gpt-5' => 'GPT-5',
+                                        'gpt-5-mini' => 'Mini',
+                                        'gpt-5-nano' => 'Nano'
+                                    ];
+                                    echo $model_display[$feed->gpt5_model] ?? 'GPT-5';
                                     ?>
                                 </span>
+                            </div>
+                            
+                            <div class="feed-meta-item">
+                                <span class="meta-label"><?php _e('Verbosity:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value"><?php echo ucfirst($feed->gpt5_verbosity ?? 'high'); ?></span>
                             </div>
                             
                             <div class="feed-meta-item">
@@ -461,28 +482,32 @@ class RSP_Admin {
                             </div>
                             
                             <div class="feed-meta-item">
-                                <span class="meta-label"><?php _e('Last Check:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-label"><?php _e('Last Post:', 'rss-auto-publisher'); ?></span>
                                 <span class="meta-value">
                                     <?php 
-                                    echo $feed->last_checked ? 
-                                        human_time_diff(strtotime($feed->last_checked)) . ' ' . __('ago', 'rss-auto-publisher') : 
-                                        __('Never', 'rss-auto-publisher');
+                                    if ($feed->last_post_date) {
+                                        $days_ago = (time() - strtotime($feed->last_post_date)) / 86400;
+                                        if ($days_ago < 1) {
+                                            echo __('Today', 'rss-auto-publisher');
+                                        } elseif ($days_ago < 2) {
+                                            echo __('Yesterday', 'rss-auto-publisher');
+                                        } else {
+                                            echo sprintf(__('%d days ago', 'rss-auto-publisher'), floor($days_ago));
+                                        }
+                                    } else {
+                                        echo __('Never', 'rss-auto-publisher');
+                                    }
                                     ?>
                                 </span>
                             </div>
                             
                             <div class="feed-meta-item">
-                                <span class="meta-label"><?php _e('Target Length:', 'rss-auto-publisher'); ?></span>
-                                <span class="meta-value"><?php echo $feed->content_length ?? '1500-2500'; ?></span>
+                                <span class="meta-label"><?php _e('Next Check:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-value"><?php echo $status['next_check']; ?></span>
                             </div>
                             
                             <div class="feed-meta-item">
-                                <span class="meta-label"><?php _e('Min Words:', 'rss-auto-publisher'); ?></span>
-                                <span class="meta-value"><?php echo $feed->min_article_words ?? 1500; ?></span>
-                            </div>
-                            
-                            <div class="feed-meta-item">
-                                <span class="meta-label"><?php _e('Articles:', 'rss-auto-publisher'); ?></span>
+                                <span class="meta-label"><?php _e('Total Articles:', 'rss-auto-publisher'); ?></span>
                                 <span class="meta-value" style="color: #2271b1; font-weight: 600;"><?php echo $article_count; ?></span>
                             </div>
                             
@@ -496,8 +521,9 @@ class RSP_Admin {
                             <button type="button" class="button button-small edit-feed" data-feed-id="<?php echo $feed->id; ?>">
                                 <?php _e('Edit', 'rss-auto-publisher'); ?>
                             </button>
-                            <button type="button" class="button button-small process-feed" data-feed-id="<?php echo $feed->id; ?>">
-                                <?php _e('Process', 'rss-auto-publisher'); ?>
+                            <button type="button" class="button button-small process-feed" data-feed-id="<?php echo $feed->id; ?>" 
+                                    <?php echo !$status['can_post_today'] ? 'disabled' : ''; ?>>
+                                <?php echo !$status['can_post_today'] ? __('Posted', 'rss-auto-publisher') : __('Process', 'rss-auto-publisher'); ?>
                             </button>
                             <button type="button" class="button button-small toggle-feed" data-feed-id="<?php echo $feed->id; ?>" data-active="<?php echo $feed->is_active; ?>">
                                 <?php echo $feed->is_active ? __('Pause', 'rss-auto-publisher') : __('Resume', 'rss-auto-publisher'); ?>
@@ -514,19 +540,13 @@ class RSP_Admin {
         </div>
         <?php
     }
-    
     /**
-     * Render settings page with GPT-5 optimizations
+     * Render simplified settings page
      */
     public function render_settings_page() {
         $api_key = get_option('rsp_openai_api_key');
-        $gpt5_model = get_option('rsp_gpt5_model', 'gpt-5');
-        $use_responses_api = get_option('rsp_use_gpt5_responses_api', 'yes');
-        $default_verbosity = get_option('rsp_gpt5_verbosity', 'high');
-        $default_reasoning = get_option('rsp_gpt5_reasoning_effort', 'medium');
-        $min_article_words = get_option('rsp_min_article_words', 1500);
-        $max_retries = get_option('rsp_gpt5_max_retries', 3);
-        $default_content_length = get_option('rsp_default_content_length', '1500-2500');
+        $use_responses_api = get_option('rsp_use_responses_api', 'yes');
+        $max_retries = get_option('rsp_max_retries', 3);
         
         $openai = new RSP_OpenAI();
         $usage_stats = $openai->is_configured() ? $openai->get_usage_stats() : null;
@@ -541,7 +561,7 @@ class RSP_Admin {
                 <?php wp_nonce_field('rsp_save_settings', 'rsp_nonce'); ?>
                 
                 <div class="rsp-card">
-                    <h2><?php _e('OpenAI GPT-5 Configuration', 'rss-auto-publisher'); ?></h2>
+                    <h2><?php _e('OpenAI API Configuration', 'rss-auto-publisher'); ?></h2>
                     
                     <table class="form-table">
                         <tr>
@@ -558,20 +578,6 @@ class RSP_Admin {
                         </tr>
                         
                         <tr>
-                            <th><label for="gpt5_model"><?php _e('GPT-5 Model', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <select name="gpt5_model" id="gpt5_model">
-                                    <option value="gpt-5" <?php selected($gpt5_model, 'gpt-5'); ?>>GPT-5 (Full - Best Quality)</option>
-                                    <option value="gpt-5-mini" <?php selected($gpt5_model, 'gpt-5-mini'); ?>>GPT-5 Mini (Faster, Lower Cost)</option>
-                                    <option value="gpt-5-nano" <?php selected($gpt5_model, 'gpt-5-nano'); ?>>GPT-5 Nano (Fastest, Lowest Cost)</option>
-                                </select>
-                                <p class="description">
-                                    <?php _e('GPT-5 Full is recommended for best article quality', 'rss-auto-publisher'); ?>
-                                </p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
                             <th><?php _e('Model Information', 'rss-auto-publisher'); ?></th>
                             <td>
                                 <ul class="description">
@@ -580,12 +586,6 @@ class RSP_Admin {
                                     <li><?php _e('Features: Verbosity Control, Reasoning Effort, Responses API, Custom Tools', 'rss-auto-publisher'); ?></li>
                                 </ul>
                             </td>
-                        </tr>
-                        
-                        <tr>
-                            <th colspan="2">
-                                <h3><?php _e('GPT-5 Specific Settings', 'rss-auto-publisher'); ?></h3>
-                            </th>
                         </tr>
                         
                         <tr>
@@ -600,57 +600,9 @@ class RSP_Admin {
                         </tr>
                         
                         <tr>
-                            <th><label for="gpt5_verbosity"><?php _e('Default Verbosity', 'rss-auto-publisher'); ?></label></th>
+                            <th><label for="max_retries"><?php _e('Max Regeneration Attempts', 'rss-auto-publisher'); ?></label></th>
                             <td>
-                                <select name="gpt5_verbosity" id="gpt5_verbosity">
-                                    <option value="low" <?php selected($default_verbosity, 'low'); ?>><?php _e('Low (Concise - Not recommended for articles)', 'rss-auto-publisher'); ?></option>
-                                    <option value="medium" <?php selected($default_verbosity, 'medium'); ?>><?php _e('Medium (Balanced)', 'rss-auto-publisher'); ?></option>
-                                    <option value="high" <?php selected($default_verbosity, 'high'); ?>><?php _e('High (Detailed - REQUIRED for full articles)', 'rss-auto-publisher'); ?></option>
-                                </select>
-                                <p class="description">
-                                    <strong><?php _e('IMPORTANT: Use "High" verbosity for complete articles. Low/Medium will produce shortened content.', 'rss-auto-publisher'); ?></strong>
-                                </p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th><label for="gpt5_reasoning_effort"><?php _e('Reasoning Effort', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <select name="gpt5_reasoning_effort" id="gpt5_reasoning_effort">
-                                    <option value="minimal" <?php selected($default_reasoning, 'minimal'); ?>><?php _e('Minimal (Very Fast, simple tasks)', 'rss-auto-publisher'); ?></option>
-                                    <option value="low" <?php selected($default_reasoning, 'low'); ?>><?php _e('Low (Fast)', 'rss-auto-publisher'); ?></option>
-                                    <option value="medium" <?php selected($default_reasoning, 'medium'); ?>><?php _e('Medium (Balanced - Recommended)', 'rss-auto-publisher'); ?></option>
-                                    <option value="high" <?php selected($default_reasoning, 'high'); ?>><?php _e('High (Best Quality, slower)', 'rss-auto-publisher'); ?></option>
-                                </select>
-                                <p class="description"><?php _e('Higher reasoning effort produces better quality content but uses more tokens and time.', 'rss-auto-publisher'); ?></p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th><label for="default_content_length"><?php _e('Default Content Length', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <select name="default_content_length" id="default_content_length">
-                                    <option value="800-1200" <?php selected($default_content_length, '800-1200'); ?>><?php _e('Short (800-1200 words)', 'rss-auto-publisher'); ?></option>
-                                    <option value="1200-1800" <?php selected($default_content_length, '1200-1800'); ?>><?php _e('Medium (1200-1800 words)', 'rss-auto-publisher'); ?></option>
-                                    <option value="1500-2500" <?php selected($default_content_length, '1500-2500'); ?>><?php _e('Long (1500-2500 words - Recommended)', 'rss-auto-publisher'); ?></option>
-                                    <option value="2500-3500" <?php selected($default_content_length, '2500-3500'); ?>><?php _e('Extra Long (2500-3500 words)', 'rss-auto-publisher'); ?></option>
-                                </select>
-                                <p class="description"><?php _e('Works best with High verbosity setting', 'rss-auto-publisher'); ?></p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th><label for="min_article_words"><?php _e('Minimum Article Words', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <input type="number" name="min_article_words" id="min_article_words" value="<?php echo $min_article_words; ?>" min="500" max="5000">
-                                <p class="description"><?php _e('Articles shorter than this will trigger regeneration with higher verbosity', 'rss-auto-publisher'); ?></p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th><label for="gpt5_max_retries"><?php _e('Max Regeneration Attempts', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <input type="number" name="gpt5_max_retries" id="gpt5_max_retries" value="<?php echo $max_retries; ?>" min="1" max="5">
+                                <input type="number" name="max_retries" id="max_retries" value="<?php echo $max_retries; ?>" min="1" max="5">
                                 <p class="description"><?php _e('Maximum attempts to regenerate if content is too short', 'rss-auto-publisher'); ?></p>
                             </td>
                         </tr>
@@ -690,25 +642,14 @@ class RSP_Admin {
                 </div>
                 
                 <div class="rsp-card">
-                    <h2><?php _e('Content Generation Settings', 'rss-auto-publisher'); ?></h2>
+                    <h2><?php _e('System Settings', 'rss-auto-publisher'); ?></h2>
                     
                     <table class="form-table">
                         <tr>
-                            <th><label for="default_post_status"><?php _e('Default Post Status', 'rss-auto-publisher'); ?></label></th>
-                            <td>
-                                <select name="default_post_status" id="default_post_status">
-                                    <option value="draft" <?php selected(get_option('rsp_default_post_status'), 'draft'); ?>><?php _e('Draft', 'rss-auto-publisher'); ?></option>
-                                    <option value="pending" <?php selected(get_option('rsp_default_post_status'), 'pending'); ?>><?php _e('Pending Review', 'rss-auto-publisher'); ?></option>
-                                    <option value="publish" <?php selected(get_option('rsp_default_post_status'), 'publish'); ?>><?php _e('Published', 'rss-auto-publisher'); ?></option>
-                                </select>
-                            </td>
-                        </tr>
-                        
-                        <tr>
                             <th><label for="queue_batch_size"><?php _e('Queue Batch Size', 'rss-auto-publisher'); ?></label></th>
                             <td>
-                                <input type="number" name="queue_batch_size" id="queue_batch_size" value="<?php echo get_option('rsp_queue_batch_size', 2); ?>" min="1" max="10">
-                                <p class="description"><?php _e('Lower values (1-2) recommended for GPT-5 due to longer processing times', 'rss-auto-publisher'); ?></p>
+                                <input type="number" name="queue_batch_size" id="queue_batch_size" value="<?php echo get_option('rsp_queue_batch_size', 2); ?>" min="1" max="5">
+                                <p class="description"><?php _e('Number of items to process at once (lower values recommended for GPT-5)', 'rss-auto-publisher'); ?></p>
                             </td>
                         </tr>
                         
@@ -785,6 +726,10 @@ class RSP_Admin {
         <div class="wrap rsp-admin">
             <h1><?php _e('RSS Auto Publisher - Queue Status', 'rss-auto-publisher'); ?></h1>
             
+            <div class="notice notice-info">
+                <p><?php _e('The plugin processes 1 article per day per feed to ensure quality content generation.', 'rss-auto-publisher'); ?></p>
+            </div>
+            
             <div class="rsp-card">
                 <h2><?php _e('Queue Statistics', 'rss-auto-publisher'); ?></h2>
                 
@@ -825,10 +770,67 @@ class RSP_Admin {
                     <?php endif; ?>
                 </p>
             </div>
+            
+            <?php
+            // Show feeds posting status
+            $feeds = RSP_Database::get_feeds(['is_active' => 1]);
+            if (!empty($feeds)):
+            ?>
+            <div class="rsp-card">
+                <h2><?php _e('Daily Posting Status', 'rss-auto-publisher'); ?></h2>
+                <table class="wp-list-table widefat fixed striped">
+                    <thead>
+                        <tr>
+                            <th><?php _e('Feed Name', 'rss-auto-publisher'); ?></th>
+                            <th><?php _e('Last Post', 'rss-auto-publisher'); ?></th>
+                            <th><?php _e('Posted Today', 'rss-auto-publisher'); ?></th>
+                            <th><?php _e('In Queue', 'rss-auto-publisher'); ?></th>
+                            <th><?php _e('Next Check', 'rss-auto-publisher'); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($feeds as $feed): 
+                            $status = RSP_Feed_Processor::get_feed_status($feed->id);
+                        ?>
+                        <tr>
+                            <td><?php echo esc_html($feed->feed_name ?: 'Feed #' . $feed->id); ?></td>
+                            <td><?php echo $feed->last_post_date ?: '-'; ?></td>
+                            <td>
+                                <?php if ($status['posted_today']): ?>
+                                    <span style="color: green;">✓ Yes</span>
+                                <?php else: ?>
+                                    <span style="color: #666;">No</span>
+                                <?php endif; ?>
+                            </td>
+                            <td><?php echo $status['pending_in_queue']; ?></td>
+                            <td><?php echo $status['next_check']; ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
         </div>
         
         <script>
         jQuery(document).ready(function($) {
+            $('#process-queue-now').on('click', function() {
+                var $btn = $(this);
+                $btn.prop('disabled', true).text('Processing...');
+                
+                $.post(ajaxurl, {
+                    action: 'rsp_process_queue_now',
+                    nonce: '<?php echo wp_create_nonce('rsp-ajax'); ?>'
+                })
+                .done(function(response) {
+                    alert('Queue processed');
+                    location.reload();
+                })
+                .always(function() {
+                    $btn.prop('disabled', false).text('Process Queue Now');
+                });
+            });
+            
             $('#clear-pending-queue').on('click', function() {
                 if (!confirm('Are you sure you want to clear all pending queue items?')) {
                     return;
@@ -932,7 +934,8 @@ class RSP_Admin {
             'content_length' => '200-300',
             'gpt5_verbosity' => 'medium',
             'gpt5_reasoning' => 'minimal',
-            'min_article_words' => 150
+            'min_article_words' => 150,
+            'gpt5_model' => 'gpt-5'
         ];
         
         $result = $openai->create_content_from_title(
@@ -949,7 +952,7 @@ class RSP_Admin {
             
             wp_send_json_success([
                 'api_type' => 'GPT-5 Responses API',
-                'model' => get_option('rsp_gpt5_model', 'gpt-5'),
+                'model' => 'gpt-5',
                 'verbosity' => $test_settings['gpt5_verbosity'],
                 'word_count' => $word_count,
                 'time' => $elapsed,
@@ -978,14 +981,12 @@ class RSP_Admin {
         check_ajax_referer('rsp-ajax', 'nonce');
         
         $feed_id = intval($_POST['feed_id']);
-        $queued = RSP_Feed_Processor::process_feed($feed_id);
+        $result = RSP_Feed_Processor::force_process_feed($feed_id);
         
-        if ($queued > 0) {
-            wp_send_json_success([
-                'message' => sprintf(__('%d items queued for processing', 'rss-auto-publisher'), $queued)
-            ]);
+        if ($result['success']) {
+            wp_send_json_success($result);
         } else {
-            wp_send_json_error(__('No new items to process', 'rss-auto-publisher'));
+            wp_send_json_error($result['message']);
         }
     }
     
@@ -1058,23 +1059,26 @@ class RSP_Admin {
             'category_id' => intval($_POST['category_id']),
             'author_id' => intval($_POST['author_id']),
             'post_status' => sanitize_text_field($_POST['post_status']),
-            'min_word_count' => intval($_POST['min_word_count']),
             'enable_enhancement' => isset($_POST['enable_enhancement']) ? 1 : 0,
             'enable_translation' => isset($_POST['enable_translation']) ? 1 : 0,
             'target_languages' => isset($_POST['target_languages']) ? $_POST['target_languages'] : [],
             'enhancement_prompt' => sanitize_textarea_field($_POST['enhancement_prompt']),
             'update_frequency' => sanitize_text_field($_POST['update_frequency']),
-            'items_per_import' => intval($_POST['items_per_import']),
+            
+            // Per-feed GPT-5 settings
+            'gpt5_model' => sanitize_text_field($_POST['gpt5_model'] ?? 'gpt-5'),
+            'gpt5_verbosity' => sanitize_text_field($_POST['gpt5_verbosity'] ?? 'high'),
+            'gpt5_reasoning' => sanitize_text_field($_POST['gpt5_reasoning'] ?? 'medium'),
+            'content_length' => sanitize_text_field($_POST['content_length'] ?? '1500-2500'),
+            'min_article_words' => intval($_POST['min_article_words'] ?? 1500),
+            
+            // Content settings
             'content_domain' => sanitize_text_field($_POST['content_domain'] ?? 'auto'),
             'content_angle' => sanitize_text_field($_POST['content_angle'] ?? 'auto'),
             'seo_focus' => sanitize_text_field($_POST['seo_focus'] ?? 'informational'),
             'target_keywords' => sanitize_text_field($_POST['target_keywords'] ?? ''),
-            'content_length' => sanitize_text_field($_POST['content_length'] ?? '1500-2500'),
             'target_audience' => sanitize_text_field($_POST['target_audience'] ?? ''),
-            'universal_prompt' => sanitize_textarea_field($_POST['universal_prompt'] ?? ''),
-            'gpt5_verbosity' => sanitize_text_field($_POST['gpt5_verbosity'] ?? 'high'),
-            'gpt5_reasoning' => sanitize_text_field($_POST['gpt5_reasoning'] ?? 'medium'),
-            'min_article_words' => intval($_POST['min_article_words'] ?? 1500)
+            'universal_prompt' => sanitize_textarea_field($_POST['universal_prompt'] ?? '')
         ];
         
         $feed_id = RSP_Database::add_feed($data);
@@ -1107,23 +1111,26 @@ class RSP_Admin {
             'category_id' => intval($_POST['category_id']),
             'author_id' => intval($_POST['author_id']),
             'post_status' => sanitize_text_field($_POST['post_status']),
-            'min_word_count' => intval($_POST['min_word_count']),
             'enable_enhancement' => isset($_POST['enable_enhancement']) ? 1 : 0,
             'enable_translation' => isset($_POST['enable_translation']) ? 1 : 0,
             'target_languages' => isset($_POST['target_languages']) ? $_POST['target_languages'] : [],
             'enhancement_prompt' => sanitize_textarea_field($_POST['enhancement_prompt']),
             'update_frequency' => sanitize_text_field($_POST['update_frequency']),
-            'items_per_import' => intval($_POST['items_per_import']),
+            
+            // Per-feed GPT-5 settings
+            'gpt5_model' => sanitize_text_field($_POST['gpt5_model'] ?? 'gpt-5'),
+            'gpt5_verbosity' => sanitize_text_field($_POST['gpt5_verbosity'] ?? 'high'),
+            'gpt5_reasoning' => sanitize_text_field($_POST['gpt5_reasoning'] ?? 'medium'),
+            'content_length' => sanitize_text_field($_POST['content_length'] ?? '1500-2500'),
+            'min_article_words' => intval($_POST['min_article_words'] ?? 1500),
+            
+            // Content settings
             'content_domain' => sanitize_text_field($_POST['content_domain'] ?? 'auto'),
             'content_angle' => sanitize_text_field($_POST['content_angle'] ?? 'auto'),
             'seo_focus' => sanitize_text_field($_POST['seo_focus'] ?? 'informational'),
             'target_keywords' => sanitize_text_field($_POST['target_keywords'] ?? ''),
-            'content_length' => sanitize_text_field($_POST['content_length'] ?? '1500-2500'),
             'target_audience' => sanitize_text_field($_POST['target_audience'] ?? ''),
-            'universal_prompt' => sanitize_textarea_field($_POST['universal_prompt'] ?? ''),
-            'gpt5_verbosity' => sanitize_text_field($_POST['gpt5_verbosity'] ?? 'high'),
-            'gpt5_reasoning' => sanitize_text_field($_POST['gpt5_reasoning'] ?? 'medium'),
-            'min_article_words' => intval($_POST['min_article_words'] ?? 1500)
+            'universal_prompt' => sanitize_textarea_field($_POST['universal_prompt'] ?? '')
         ];
         
         if (RSP_Database::update_feed($feed_id, $data)) {
@@ -1136,24 +1143,16 @@ class RSP_Admin {
     }
     
     /**
-     * Handle save settings
+     * Handle save settings (simplified)
      */
     public function handle_save_settings() {
         check_admin_referer('rsp_save_settings', 'rsp_nonce');
         
-        // Basic settings
+        // Only save essential global settings
         update_option('rsp_openai_api_key', sanitize_text_field($_POST['openai_api_key']));
-        update_option('rsp_default_post_status', sanitize_text_field($_POST['default_post_status']));
+        update_option('rsp_use_responses_api', sanitize_text_field($_POST['use_responses_api'] ?? 'yes'));
+        update_option('rsp_max_retries', intval($_POST['max_retries'] ?? 3));
         update_option('rsp_queue_batch_size', intval($_POST['queue_batch_size'] ?? 2));
-        
-        // GPT-5 specific settings
-        update_option('rsp_gpt5_model', sanitize_text_field($_POST['gpt5_model'] ?? 'gpt-5'));
-        update_option('rsp_use_gpt5_responses_api', sanitize_text_field($_POST['use_responses_api'] ?? 'yes'));
-        update_option('rsp_gpt5_verbosity', sanitize_text_field($_POST['gpt5_verbosity'] ?? 'high'));
-        update_option('rsp_gpt5_reasoning_effort', sanitize_text_field($_POST['gpt5_reasoning_effort'] ?? 'medium'));
-        update_option('rsp_min_article_words', intval($_POST['min_article_words'] ?? 1500));
-        update_option('rsp_gpt5_max_retries', intval($_POST['gpt5_max_retries'] ?? 3));
-        update_option('rsp_default_content_length', sanitize_text_field($_POST['default_content_length'] ?? '1500-2500'));
         update_option('rsp_enable_content_validation', isset($_POST['enable_content_validation']) ? 1 : 0);
         update_option('rsp_enable_debug_logging', isset($_POST['enable_debug_logging']) ? 1 : 0);
         
