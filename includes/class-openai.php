@@ -1,7 +1,7 @@
 <?php
 /**
  * OpenAI GPT-5 Integration for RSS Auto Publisher
- * Version 4.0.0 - Per-feed model support
+ * Version 4.0.1 - Fixed response parsing
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -194,6 +194,11 @@ class RSP_OpenAI {
         
         $data = json_decode($response_body, true);
         
+        // Add debugging if enabled
+        if (get_option('rsp_enable_debug_logging', 0)) {
+            error_log('RSS Auto Publisher: Raw GPT-5 response structure: ' . json_encode(array_keys($data)));
+        }
+        
         if (isset($data['error'])) {
             error_log('RSS Auto Publisher GPT-5 Error: ' . json_encode($data['error']));
             return false;
@@ -204,12 +209,80 @@ class RSP_OpenAI {
     }
     
     /**
-     * Parse GPT-5 Responses API output (corrected)
+     * Parse GPT-5 Responses API output (FIXED VERSION)
      */
     private function parse_gpt5_response($data) {
-        // GPT-5 Responses API returns output directly
+        // First, fix any encoding issues in the entire response
+        $response_string = json_encode($data);
+        $response_string = str_replace(['«', '»'], '"', $response_string);
+        $response_string = str_replace(['„', '"', '"'], '"', $response_string); // Fix other quote variants
+        $data = json_decode($response_string, true);
+        
+        // Debug logging
+        if (get_option('rsp_enable_debug_logging', 0)) {
+            error_log('RSS Auto Publisher: Parsing response with structure: ' . json_encode(array_keys($data)));
+        }
+        
+        // Handle array of response objects (as seen in your paste.txt)
+        if (is_array($data) && !isset($data['output']) && !isset($data['choices'])) {
+            foreach ($data as $item) {
+                if (!is_array($item)) continue;
+                
+                // Look for the message type object
+                if (isset($item['type']) && $item['type'] === 'message') {
+                    // Check if content exists and is an array
+                    if (isset($item['content']) && is_array($item['content'])) {
+                        foreach ($item['content'] as $content_item) {
+                            if (isset($content_item['text'])) {
+                                $output_text = $content_item['text'];
+                                
+                                // Additional encoding fixes
+                                $output_text = str_replace(['«', '»'], '"', $output_text);
+                                $output_text = str_replace(['„', '"', '"'], '"', $output_text);
+                                
+                                // Try to parse as JSON
+                                $decoded = json_decode($output_text, true);
+                                if (json_last_error() === JSON_ERROR_NONE && 
+                                    isset($decoded['title']) && isset($decoded['content'])) {
+                                    
+                                    // Log successful parsing
+                                    error_log('RSS Auto Publisher: Successfully parsed article - Title: ' . substr($decoded['title'], 0, 50));
+                                    
+                                    // Clean up the content before returning
+                                    $decoded['content'] = $this->clean_article_content($decoded['content']);
+                                    return $decoded;
+                                } else {
+                                    error_log('RSS Auto Publisher: JSON parsing error: ' . json_last_error_msg());
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Alternative structure: content might be a string directly
+                    if (isset($item['content']) && is_string($item['content'])) {
+                        $output_text = $item['content'];
+                        $output_text = str_replace(['«', '»'], '"', $output_text);
+                        
+                        $decoded = json_decode($output_text, true);
+                        if (json_last_error() === JSON_ERROR_NONE && 
+                            isset($decoded['title']) && isset($decoded['content'])) {
+                            $decoded['content'] = $this->clean_article_content($decoded['content']);
+                            return $decoded;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Standard GPT-5 Responses API format
         if (isset($data['output'])) {
             $output_text = $data['output'];
+            
+            // Fix encoding
+            if (is_string($output_text)) {
+                $output_text = str_replace(['«', '»'], '"', $output_text);
+                $output_text = str_replace(['„', '"', '"'], '"', $output_text);
+            }
             
             // If output is already structured
             if (is_array($output_text)) {
@@ -219,7 +292,7 @@ class RSP_OpenAI {
             // Try to parse as JSON
             $decoded = json_decode($output_text, true);
             if (json_last_error() === JSON_ERROR_NONE && isset($decoded['title']) && isset($decoded['content'])) {
-                // Clean up the content before returning
+                error_log('RSS Auto Publisher: Parsed from output field - Title: ' . substr($decoded['title'], 0, 50));
                 $decoded['content'] = $this->clean_article_content($decoded['content']);
                 return $decoded;
             }
@@ -228,14 +301,28 @@ class RSP_OpenAI {
             return $this->parse_raw_content($output_text);
         }
         
-        // Handle different response structures
+        // Handle Chat Completions API format (fallback)
+        if (isset($data['choices'][0]['message']['content'])) {
+            $content = $data['choices'][0]['message']['content'];
+            $content = str_replace(['«', '»'], '"', $content);
+            
+            $decoded = json_decode($content, true);
+            if (json_last_error() === JSON_ERROR_NONE && isset($decoded['title']) && isset($decoded['content'])) {
+                $decoded['content'] = $this->clean_article_content($decoded['content']);
+                return $decoded;
+            }
+            
+            return $this->parse_raw_content($content);
+        }
+        
+        // Legacy format
         if (isset($data['choices'][0]['text'])) {
             $content = $this->parse_raw_content($data['choices'][0]['text']);
             $content['content'] = $this->clean_article_content($content['content']);
             return $content;
         }
         
-        error_log('RSS Auto Publisher: Unexpected GPT-5 response structure: ' . json_encode($data));
+        error_log('RSS Auto Publisher: Could not parse GPT-5 response. Unknown structure: ' . json_encode(array_keys($data)));
         return false;
     }
     
@@ -469,6 +556,8 @@ REMEMBER:
         
         if (isset($data['choices'][0]['message']['content'])) {
             $content = $data['choices'][0]['message']['content'];
+            $content = str_replace(['«', '»'], '"', $content);
+            
             $decoded = json_decode($content, true);
             
             if (json_last_error() === JSON_ERROR_NONE && isset($decoded['title']) && isset($decoded['content'])) {
@@ -605,13 +694,18 @@ Content: {$content}";
     }
     
     /**
-     * Parse raw content fallback
+     * Parse raw content fallback (IMPROVED)
      */
     private function parse_raw_content($text) {
+        // Fix encoding issues first
+        $text = str_replace(['«', '»'], '"', $text);
+        $text = str_replace(['„', '"', '"'], '"', $text);
+        
         // Try to extract JSON from the text
         if (preg_match('/\{[\s\S]*"title"[\s\S]*"content"[\s\S]*\}/m', $text, $matches)) {
             $decoded = json_decode($matches[0], true);
             if (json_last_error() === JSON_ERROR_NONE && isset($decoded['title']) && isset($decoded['content'])) {
+                error_log('RSS Auto Publisher: Extracted JSON from raw content - Title: ' . substr($decoded['title'], 0, 50));
                 return $decoded;
             }
         }
@@ -628,11 +722,26 @@ Content: {$content}";
             $content_match = str_replace($matches[0], '', $text);
         }
         
+        // If we still don't have a title, try to extract from first line
+        if (empty($title_match)) {
+            $lines = explode("\n", $text);
+            if (!empty($lines[0]) && strlen($lines[0]) < 200) {
+                $title_match = trim($lines[0]);
+                $content_match = implode("\n", array_slice($lines, 1));
+            }
+        }
+        
         // Convert markdown to HTML if needed
         $content_html = $this->markdown_to_html(trim($content_match));
         
+        // Final fallback - use a generic title if nothing found
+        if (empty($title_match)) {
+            error_log('RSS Auto Publisher: Warning - Could not extract title from content, using fallback');
+            $title_match = 'Article'; // This should be your last resort
+        }
+        
         return [
-            'title' => !empty($title_match) ? $title_match : 'Article',
+            'title' => $title_match,
             'content' => $content_html
         ];
     }
